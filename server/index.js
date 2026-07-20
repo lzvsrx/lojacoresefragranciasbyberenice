@@ -52,6 +52,23 @@ for (const [name, type] of [
 db.exec(
   `CREATE TABLE IF NOT EXISTS payment_methods(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,requires_reference INTEGER NOT NULL DEFAULT 0,max_installments INTEGER NOT NULL DEFAULT 1,instructions TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP)`,
 );
+db.exec(
+  `CREATE TABLE IF NOT EXISTS stock_movements(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL,
+    movement_type TEXT NOT NULL CHECK(movement_type IN ('ENTRADA','SAIDA','AJUSTE','VENDA','CANCELAMENTO')),
+    quantity INTEGER NOT NULL,
+    previous_quantity INTEGER NOT NULL,
+    new_quantity INTEGER NOT NULL,
+    reason TEXT NOT NULL,
+    user_id INTEGER,
+    sale_id INTEGER,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(product_id) REFERENCES products(id),
+    FOREIGN KEY(user_id) REFERENCES users(id),
+    FOREIGN KEY(sale_id) REFERENCES sales(id)
+  )`,
+);
 const seedPayment = db.prepare(
   "INSERT OR IGNORE INTO payment_methods(code,name,active,requires_reference,max_installments,instructions) VALUES(?,?,?,?,?,?)",
 );
@@ -444,6 +461,7 @@ const sell = db.transaction((data, userId) => {
   const change =
       method.code === "01" ? Number((received - total).toFixed(2)) : 0,
     orderNumber = `PED-${Date.now().toString().slice(-8)}`;
+  const previousQuantity = p.quantity;
   db.prepare("UPDATE products SET quantity=quantity-? WHERE id=?").run(
     data.quantity,
     data.productId,
@@ -469,6 +487,18 @@ const sell = db.transaction((data, userId) => {
       data.fiscalDocument || null,
       data.fiscalKey || null,
     );
+  db.prepare(
+    "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id,sale_id) VALUES(?,?,?,?,?,?,?,?)",
+  ).run(
+    p.id,
+    "VENDA",
+    -data.quantity,
+    previousQuantity,
+    previousQuantity - data.quantity,
+    `Venda ${orderNumber}`,
+    userId,
+    Number(r.lastInsertRowid),
+  );
   return {
     id: Number(r.lastInsertRowid),
     total,
@@ -510,6 +540,104 @@ app.get("/api/sales", auth(["admin", "funcionario"]), (req, res) =>
       .all(),
   ),
 );
+app.post("/api/sales/:id/cancel", auth(["admin"]), (req, res) => {
+  try {
+    const result = db.transaction(() => {
+      const sale = db
+        .prepare("SELECT * FROM sales WHERE id=?")
+        .get(req.params.id);
+      if (!sale) throw new Error("Venda não encontrada");
+      if (sale.order_status === "Cancelado")
+        throw new Error("Venda já cancelada");
+      const product = db
+        .prepare("SELECT id,quantity FROM products WHERE id=?")
+        .get(sale.product_id);
+      if (!product) throw new Error("Produto da venda não encontrado");
+      const nextQuantity = product.quantity + sale.quantity;
+      db.prepare("UPDATE products SET quantity=? WHERE id=?").run(
+        nextQuantity,
+        product.id,
+      );
+      db.prepare("UPDATE sales SET order_status='Cancelado' WHERE id=?").run(
+        sale.id,
+      );
+      db.prepare(
+        "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id,sale_id) VALUES(?,?,?,?,?,?,?,?)",
+      ).run(
+        product.id,
+        "CANCELAMENTO",
+        sale.quantity,
+        product.quantity,
+        nextQuantity,
+        clean(req.body?.reason, 200) ||
+          `Cancelamento da venda ${sale.order_number || sale.id}`,
+        req.user.id,
+        sale.id,
+      );
+      return { ok: true, stock: nextQuantity };
+    })();
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+app.get("/api/stock-movements", auth(["admin", "funcionario"]), (_req, res) =>
+  res.json(
+    db
+      .prepare(
+        `SELECT m.*,p.name product_name,u.name user_name
+           FROM stock_movements m
+           JOIN products p ON p.id=m.product_id
+           LEFT JOIN users u ON u.id=m.user_id
+           ORDER BY m.id DESC LIMIT 200`,
+      )
+      .all(),
+  ),
+);
+app.post("/api/stock-movements", auth(["admin", "funcionario"]), (req, res) => {
+  try {
+    const productId = Number(req.body?.product_id),
+      amount = Number(req.body?.quantity),
+      type = String(req.body?.movement_type || "").toUpperCase(),
+      reason = clean(req.body?.reason, 200);
+    if (!Number.isInteger(amount) || amount < 1)
+      throw new Error("Informe uma quantidade inteira maior que zero");
+    if (!["ENTRADA", "SAIDA", "AJUSTE"].includes(type))
+      throw new Error("Tipo de movimentação inválido");
+    if (reason.length < 3) throw new Error("Informe o motivo da movimentação");
+    const result = db.transaction(() => {
+      const product = db
+        .prepare("SELECT id,quantity FROM products WHERE id=?")
+        .get(productId);
+      if (!product) throw new Error("Produto não encontrado");
+      const delta = type === "SAIDA" ? -amount : amount,
+        nextQuantity = product.quantity + delta;
+      if (nextQuantity < 0)
+        throw new Error("Estoque insuficiente para esta saída");
+      db.prepare("UPDATE products SET quantity=? WHERE id=?").run(
+        nextQuantity,
+        product.id,
+      );
+      const movement = db
+        .prepare(
+          "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id) VALUES(?,?,?,?,?,?,?)",
+        )
+        .run(
+          product.id,
+          type,
+          delta,
+          product.quantity,
+          nextQuantity,
+          reason,
+          req.user.id,
+        );
+      return { id: Number(movement.lastInsertRowid), stock: nextQuantity };
+    })();
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
 app.get("/api/payment-methods", auth(["admin", "funcionario"]), (_req, res) =>
   res.json(
     db.prepare("SELECT * FROM payment_methods ORDER BY active DESC,code").all(),
@@ -548,7 +676,7 @@ app.get("/api/dashboard", auth(["admin", "funcionario"]), (req, res) => {
     .get();
   const sales = db
     .prepare(
-      "SELECT COUNT(*) sales_count,COALESCE(SUM(total_value),0) revenue FROM sales",
+      "SELECT COUNT(*) sales_count,COALESCE(SUM(total_value),0) revenue FROM sales WHERE COALESCE(order_status,'')<>'Cancelado'",
     )
     .get();
   const low = db
@@ -558,7 +686,7 @@ app.get("/api/dashboard", auth(["admin", "funcionario"]), (req, res) => {
     .all();
   const chart = db
     .prepare(
-      "SELECT substr(sale_date,1,10) date,SUM(total_value) value FROM sales GROUP BY substr(sale_date,1,10) ORDER BY date DESC LIMIT 14",
+      "SELECT substr(sale_date,1,10) date,SUM(total_value) value FROM sales WHERE COALESCE(order_status,'')<>'Cancelado' GROUP BY substr(sale_date,1,10) ORDER BY date DESC LIMIT 14",
     )
     .all()
     .reverse();
@@ -697,6 +825,25 @@ app.get(
       )
       .all();
     res.attachment("produtos.csv").send("\ufeff" + Papa.unparse(rows));
+  },
+);
+app.get(
+  "/api/export/sales.csv",
+  auth(["admin", "funcionario"]),
+  (_req, res) => {
+    const rows = db
+      .prepare(
+        `SELECT s.id,s.order_number pedido,s.sale_date data,p.name produto,
+          s.quantity quantidade,s.total_value total,s.payment_method pagamento,
+          s.order_status situacao,u.name atendente,c.name cliente
+         FROM sales s
+         LEFT JOIN products p ON p.id=s.product_id
+         LEFT JOIN users u ON u.id=s.user_id
+         LEFT JOIN users c ON c.id=s.customer_id
+         ORDER BY s.sale_date DESC`,
+      )
+      .all();
+    res.attachment("vendas.csv").send("\ufeff" + Papa.unparse(rows));
   },
 );
 app.get(
@@ -858,7 +1005,7 @@ app.get("/{*splat}", (req, res, next) =>
 app.use((err, _req, res, _next) =>
   res.status(500).json({ error: err.message || "Erro interno" }),
 );
-if (!isVercel)
+if (!isVercel || process.env.FORCE_LISTEN === "1")
   app.listen(process.env.PORT || 3001, () =>
     console.log("API em http://localhost:3001"),
   );

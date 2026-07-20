@@ -37,6 +37,9 @@ Troque a senha pelo painel de usuários após o primeiro acesso.
 - imagens originais do projeto, incluindo imagens armazenadas no SQLite;
 - PDV com baixa transacional e validação de estoque;
 - histórico de vendas;
+- entradas, saídas e ajustes de estoque com motivo, responsável e saldo anterior/novo;
+- cancelamento administrativo de vendas com devolução transacional ao estoque;
+- exportação do histórico de vendas em CSV;
 - gestão de equipe e clientes com preferências e foto de perfil;
 - catálogo responsivo para clientes;
 - importação e exportação de produtos em CSV.
@@ -45,4 +48,4 @@ O banco migrado está em `server/data/store.db`. Faça cópias de segurança des
 
 ## Banco de dados e privacidade
 
-O repositório inclui `server/data/store.seed.db`, com o catálogo e as imagens originais, mas sem vendas ou dados pessoais. Na primeira execução ele é copiado automaticamente para `server/data/store.db`. O banco operacional é ignorado pelo Git para impedir a publicação acidental de clientes, vendas e senhas.
+O repositório inclui `server/data/store.seed.db`, com o catálogo, as imagens e um histórico comercial anonimizado, sem dados pessoais de clientes. Na primeira execução ele é copiado automaticamente para `server/data/store.db`. O banco operacional é ignorado pelo Git para impedir a publicação acidental de clientes, vendas e senhas.

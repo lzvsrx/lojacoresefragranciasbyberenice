@@ -589,6 +589,90 @@ function ProductForm({ product, onClose, onSaved }) {
     </Modal>
   );
 }
+function StockForm({ product, onClose, onSaved }) {
+  const [movementType, setMovementType] = useState("ENTRADA"),
+    [quantity, setQuantity] = useState(1),
+    [reason, setReason] = useState("Reposição de estoque"),
+    [saving, setSaving] = useState(false);
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await api("/stock-movements", {
+        method: "POST",
+        body: {
+          product_id: product.id,
+          movement_type: movementType,
+          quantity,
+          reason,
+        },
+      });
+      onSaved();
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <Modal title="Movimentar estoque" onClose={onClose}>
+      <form className="form-grid" onSubmit={submit}>
+        <div className="wide stock-product-summary">
+          <b>{product.name}</b>
+          <span>Estoque atual: {product.quantity} unidades</span>
+        </div>
+        <label>
+          Operação
+          <select
+            value={movementType}
+            onChange={(event) => {
+              const value = event.target.value;
+              setMovementType(value);
+              setReason(
+                value === "ENTRADA"
+                  ? "Reposição de estoque"
+                  : "Saída manual de estoque",
+              );
+            }}
+          >
+            <option value="ENTRADA">Entrada</option>
+            <option value="SAIDA">Saída</option>
+            <option value="AJUSTE">Ajuste positivo</option>
+          </select>
+        </label>
+        <label>
+          Quantidade
+          <input
+            required
+            type="number"
+            min="1"
+            max={movementType === "SAIDA" ? product.quantity : undefined}
+            value={quantity}
+            onChange={(event) => setQuantity(Number(event.target.value))}
+          />
+        </label>
+        <label className="wide">
+          Motivo
+          <input
+            required
+            minLength="3"
+            maxLength="200"
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </label>
+        <div className="form-actions wide">
+          <button type="button" onClick={onClose}>
+            Cancelar
+          </button>
+          <button className="primary" disabled={saving}>
+            <Save size={16} /> {saving ? "Salvando…" : "Confirmar movimentação"}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 function Modal({ title, onClose, children }) {
   return (
     <div
@@ -607,10 +691,18 @@ function Modal({ title, onClose, children }) {
 }
 function Products({ canDelete }) {
   const [products, setProducts] = useState([]),
+    [movements, setMovements] = useState([]),
     [q, setQ] = useState(""),
     [edit, setEdit] = useState(undefined),
-    [show, setShow] = useState(false);
-  const load = () => api("/products").then((items) => setProducts(items));
+    [show, setShow] = useState(false),
+    [stockProduct, setStockProduct] = useState(null);
+  const load = () =>
+    Promise.all([api("/products"), api("/stock-movements")]).then(
+      ([items, history]) => {
+        setProducts(items);
+        setMovements(history);
+      },
+    );
   useEffect(load, []);
   const filtered = products.filter((x) =>
     [x.name, x.brand, x.type, x.style, x.id].some((v) =>
@@ -741,6 +833,9 @@ function Products({ canDelete }) {
                 </td>
                 <td>{date(p.expiration_date)}</td>
                 <td className="row-actions">
+                  <button onClick={() => setStockProduct(p)}>
+                    <Plus size={15} /> Estoque
+                  </button>
                   <button
                     onClick={() => {
                       setEdit(p);
@@ -761,12 +856,68 @@ function Products({ canDelete }) {
         </table>
         {!filtered.length && <Empty />}
       </div>
+      <details className="stock-history">
+        <summary>Histórico de movimentações ({movements.length})</summary>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Produto</th>
+                <th>Tipo</th>
+                <th>Quantidade</th>
+                <th>Saldo</th>
+                <th>Motivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {movements.slice(0, 50).map((movement) => (
+                <tr key={movement.id}>
+                  <td>{date(movement.created_at)}</td>
+                  <td>{movement.product_name}</td>
+                  <td>
+                    <span className="pill">{movement.movement_type}</span>
+                  </td>
+                  <td
+                    className={movement.quantity < 0 ? "negative" : "positive"}
+                  >
+                    {movement.quantity > 0 ? "+" : ""}
+                    {movement.quantity}
+                  </td>
+                  <td>
+                    {movement.previous_quantity} → {movement.new_quantity}
+                  </td>
+                  <td>
+                    {movement.reason}
+                    <small className="block">
+                      {movement.user_name || "Sistema"}
+                    </small>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!movements.length && (
+            <Empty text="Nenhuma movimentação registrada" />
+          )}
+        </div>
+      </details>
       {show && (
         <ProductForm
           product={edit}
           onClose={() => setShow(false)}
           onSaved={() => {
             setShow(false);
+            load();
+          }}
+        />
+      )}
+      {stockProduct && (
+        <StockForm
+          product={stockProduct}
+          onClose={() => setStockProduct(null)}
+          onSaved={() => {
+            setStockProduct(null);
             load();
           }}
         />
@@ -895,7 +1046,7 @@ const blankUser = {
   preferred_brand: "",
   preferred_style: "",
 };
-function CustomerOrders({ users }) {
+function CustomerOrders({ users, canManage }) {
   const [products, setProducts] = useState([]),
     [sales, setSales] = useState([]),
     [methods, setMethods] = useState([]),
@@ -924,6 +1075,35 @@ function CustomerOrders({ users }) {
         setMethodId(String(m.find((x) => x.active).id));
     });
   useEffect(load, []);
+  const exportSales = async () => {
+    try {
+      const blob = await api("/export/sales.csv"),
+        anchor = document.createElement("a");
+      anchor.href = URL.createObjectURL(blob);
+      anchor.download = "vendas.csv";
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(anchor.href), 1000);
+    } catch (error) {
+      alert(error.message);
+    }
+  };
+  const cancelSale = async (sale) => {
+    const reason = prompt(
+      `Motivo do cancelamento de ${sale.order_number || `venda #${sale.id}`}:`,
+    );
+    if (!reason) return;
+    if (!confirm("Confirmar cancelamento e devolver o item ao estoque?"))
+      return;
+    try {
+      await api(`/sales/${sale.id}/cancel`, {
+        method: "POST",
+        body: { reason },
+      });
+      load();
+    } catch (error) {
+      alert(error.message);
+    }
+  };
   const product = products.find((x) => x.id === +productId),
     client = users.find((x) => x.id === +customerId),
     method = methods.find((x) => x.id === +methodId),
@@ -1142,7 +1322,15 @@ function CustomerOrders({ users }) {
           </div>
         </form>
       </Card>
-      <Card title="Pedidos e vendas" subtitle={`${sales.length} registros`}>
+      <Card
+        title="Pedidos e vendas"
+        subtitle={`${sales.length} registros`}
+        action={
+          <button onClick={exportSales}>
+            <Download size={16} /> Exportar vendas
+          </button>
+        }
+      >
         <div className="sale-list orders-list">
           {sales.slice(0, 20).map((s) => (
             <div key={s.id}>
@@ -1166,6 +1354,11 @@ function CustomerOrders({ users }) {
                 )}
               </span>
               <strong>{money(s.total_value)}</strong>
+              {canManage && s.order_status !== "Cancelado" && (
+                <button className="delete" onClick={() => cancelSale(s)}>
+                  <Trash2 size={15} /> Cancelar
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -1344,7 +1537,7 @@ function Users({ canManage }) {
         </button>
       </div>
       {tab === "orders" ? (
-        <CustomerOrders users={users} />
+        <CustomerOrders users={users} canManage={canManage} />
       ) : (
         <Card
           title={
