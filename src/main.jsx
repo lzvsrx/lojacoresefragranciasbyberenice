@@ -211,21 +211,19 @@ function Shell({ user, setUser }) {
           </div>
         </div>
         <nav>
-          {allowed.map((x) =>
-            (() => {
-              const NavIcon = icons[x] || LayoutDashboard;
-              return (
-                <button
-                  key={x}
-                  className={page === x ? "active" : ""}
-                  onClick={() => setPage(x)}
-                >
-                  <NavIcon size={19} />
-                  {labels[x]}
-                </button>
-              );
-            })(),
-          )}
+          {allowed.map((item) => {
+            const NavIcon = icons[item] ?? LayoutDashboard;
+            return (
+              <button
+                key={item}
+                className={page === item ? "active" : ""}
+                onClick={() => setPage(item)}
+              >
+                {React.createElement(NavIcon, { size: 19 })}
+                {labels[item]}
+              </button>
+            );
+          })}
         </nav>
         <div className="profile">
           {user.has_image ? (
@@ -385,7 +383,7 @@ function SalesChart({ data = [] }) {
 function Dashboard() {
   const [d, setD] = useState(null);
   useEffect(() => {
-    api("/dashboard").then(setD);
+    api("/dashboard").then((dashboard) => setD(dashboard));
   }, []);
   if (!d) return <Loading />;
   return (
@@ -612,7 +610,7 @@ function Products({ canDelete }) {
     [q, setQ] = useState(""),
     [edit, setEdit] = useState(undefined),
     [show, setShow] = useState(false);
-  const load = () => api("/products").then(setProducts);
+  const load = () => api("/products").then((items) => setProducts(items));
   useEffect(load, []);
   const filtered = products.filter((x) =>
     [x.name, x.brand, x.type, x.style, x.id].some((v) =>
@@ -1177,7 +1175,7 @@ function CustomerOrders({ users }) {
 }
 function PaymentSettings() {
   const [methods, setMethods] = useState([]);
-  const load = () => api("/payment-methods").then(setMethods);
+  const load = () => api("/payment-methods").then((items) => setMethods(items));
   useEffect(load, []);
   const change = (id, key, value) =>
     setMethods(methods.map((x) => (x.id === id ? { ...x, [key]: value } : x)));
@@ -1276,7 +1274,7 @@ function Users({ canManage }) {
     [show, setShow] = useState(false),
     [tab, setTab] = useState("clients"),
     [query, setQuery] = useState("");
-  const load = () => api("/users").then(setUsers);
+  const load = () => api("/users").then((items) => setUsers(items));
   useEffect(load, []);
   const del = async (u) => {
     if (confirm(`Excluir permanentemente ${u.name}?`))
@@ -1686,7 +1684,7 @@ function Catalog() {
     [q, setQ] = useState(""),
     [type, setType] = useState("Todos");
   useEffect(() => {
-    api("/products").then(setProducts);
+    api("/products").then((items) => setProducts(items));
   }, []);
   const types = [
     "Todos",
@@ -1780,7 +1778,7 @@ function App() {
     const token = localStorage.getItem("token");
     if (token)
       api("/me")
-        .then(setUser)
+        .then((currentUser) => setUser(currentUser))
         .catch(() => {
           localStorage.removeItem("token");
           setUser(null);
@@ -1807,6 +1805,13 @@ class ErrorBoundary extends React.Component {
   }
   componentDidCatch(error, info) {
     console.error("Erro da interface", error, info);
+    const recoveryKey = "interface-recovery-20260720-2";
+    if (!sessionStorage.getItem(recoveryKey)) {
+      sessionStorage.setItem(recoveryKey, "1");
+      window.setTimeout(() => {
+        window.location.replace(`/?atualizacao=${Date.now()}`);
+      }, 100);
+    }
   }
   render() {
     if (this.state.error)
@@ -1815,6 +1820,7 @@ class ErrorBoundary extends React.Component {
           <img src="/assets/logo1.jpeg" />
           <h1>Não foi possível abrir esta tela</h1>
           <p>{this.state.error.message || "Ocorreu um erro inesperado."}</p>
+          <small>Versão corrigida 2026.07.20.2</small>
           <button
             className="primary"
             onClick={() => {
