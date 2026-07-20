@@ -4,3 +4,6 @@ dist/
 server/data/*.db-shm
 server/data/*.db-wal
 server/data/store.db
+
+.vercel
+.env*
