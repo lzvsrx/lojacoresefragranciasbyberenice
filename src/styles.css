@@ -1,4 +1,28 @@
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:ital,wght@0,600;1,600&display=swap");
+button,
+.button,
+.whatsapp-button,
+.store-contact a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+button svg,
+.button svg,
+a svg {
+  flex: 0 0 auto;
+  stroke-width: 1.9;
+}
+.sidebar nav button svg {
+  color: #d9b79e;
+}
+.sidebar nav button.active svg {
+  color: #fff;
+}
+.row-actions button {
+  gap: 4px;
+}
 .profile-upload {
   display: flex;
   align-items: center;
@@ -737,7 +761,7 @@ input:focus {
   gap: 8px;
 }
 .button {
-  display: inline-block;
+  display: inline-flex;
 }
 .toolbar {
   display: flex;

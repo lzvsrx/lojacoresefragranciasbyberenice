@@ -9,6 +9,30 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import {
+  Camera,
+  CreditCard,
+  Download,
+  FileText,
+  LayoutDashboard,
+  LogIn,
+  LogOut,
+  MapPin,
+  MessageCircle,
+  Package,
+  Pencil,
+  Plus,
+  ReceiptText,
+  Save,
+  Send,
+  ShoppingBag,
+  ShoppingCart,
+  Trash2,
+  Upload,
+  UserCog,
+  UserPlus,
+  UsersRound,
+} from "lucide-react";
 import "./styles.css";
 
 const API = "/api";
@@ -21,7 +45,9 @@ const date = (v) => {
   if (!v) return "—";
   const value = String(v);
   const parsed = new Date(value.includes("T") ? value : value + "T12:00:00");
-  return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleDateString("pt-BR");
+  return Number.isNaN(parsed.getTime())
+    ? "—"
+    : parsed.toLocaleDateString("pt-BR");
 };
 const STORE_PHONE = "+55 35 9821-3049";
 const STORE_WHATSAPP = "553598213049";
@@ -107,7 +133,7 @@ function Login({ onLogin }) {
           </label>
           {error && <p className="error">{error}</p>}
           <button className="primary">
-            {loading ? "Entrando…" : "Entrar no sistema"}
+            <LogIn size={17} /> {loading ? "Entrando…" : "Entrar no sistema"}
           </button>
         </form>
         <small>Acesso inicial: admin / admin123</small>
@@ -127,14 +153,14 @@ function Login({ onLogin }) {
               target="_blank"
               rel="noreferrer"
             >
-              ● WhatsApp {STORE_PHONE}
+              <MessageCircle size={17} /> WhatsApp {STORE_PHONE}
             </a>
             <a
               href="https://www.google.com/maps/search/?api=1&query=Praça+Pres.+João+Pessoa,+66,+Varginha,+MG"
               target="_blank"
               rel="noreferrer"
             >
-              ⌖ {STORE_ADDRESS}
+              <MapPin size={17} /> {STORE_ADDRESS}
             </a>
           </div>
         </div>
@@ -144,11 +170,11 @@ function Login({ onLogin }) {
 }
 
 const icons = {
-  dashboard: "⌂",
-  products: "◇",
-  sales: "₿",
-  users: "♙",
-  catalog: "♡",
+  dashboard: LayoutDashboard,
+  products: Package,
+  users: UsersRound,
+  payments: CreditCard,
+  catalog: ShoppingBag,
 };
 const ROLE_PERMISSIONS = {
   admin: {
@@ -194,16 +220,21 @@ function Shell({ user, setUser }) {
           </div>
         </div>
         <nav>
-          {allowed.map((x) => (
-            <button
-              key={x}
-              className={page === x ? "active" : ""}
-              onClick={() => setPage(x)}
-            >
-              <i>{icons[x] || "▣"}</i>
-              {labels[x]}
-            </button>
-          ))}
+          {allowed.map((x) =>
+            (() => {
+              const NavIcon = icons[x] || LayoutDashboard;
+              return (
+                <button
+                  key={x}
+                  className={page === x ? "active" : ""}
+                  onClick={() => setPage(x)}
+                >
+                  <NavIcon size={19} />
+                  {labels[x]}
+                </button>
+              );
+            })(),
+          )}
         </nav>
         <div className="profile">
           {user.has_image ? (
@@ -216,7 +247,7 @@ function Shell({ user, setUser }) {
             <span>{user.role}</span>
           </div>
           <button title="Sair" onClick={logout}>
-            ↪
+            <LogOut size={18} />
           </button>
         </div>
       </aside>
@@ -252,7 +283,8 @@ function Header({ page, user, setUser }) {
       </div>
       <div className="header-actions">
         <label className="icon-btn" title="Trocar foto">
-          ◎<input hidden type="file" accept="image/*" onChange={upload} />
+          <Camera size={18} />
+          <input hidden type="file" accept="image/*" onChange={upload} />
         </label>
         <div>
           <b>Olá, {user.name?.split(" ")[0]}</b>
@@ -498,7 +530,7 @@ function ProductForm({ product, onClose, onSaved }) {
             Cancelar
           </button>
           <button className="primary">
-            {saving ? "Salvando…" : "Salvar produto"}
+            <Save size={16} /> {saving ? "Salvando…" : "Salvar produto"}
           </button>
         </div>
       </form>
@@ -576,10 +608,14 @@ function Products({ canDelete }) {
       subtitle={`${filtered.length} itens encontrados`}
       action={
         <div className="actions">
-          <button onClick={() => download("pdf")}>↓ Baixar PDF</button>
-          <button onClick={() => download("csv")}>↓ Exportar CSV</button>
+          <button onClick={() => download("pdf")}>
+            <FileText size={16} /> Baixar PDF
+          </button>
+          <button onClick={() => download("csv")}>
+            <Download size={16} /> Exportar CSV
+          </button>
           <label className="button">
-            ↑ Importar CSV
+            <Upload size={16} /> Importar CSV
             <input
               hidden
               type="file"
@@ -594,7 +630,7 @@ function Products({ canDelete }) {
               setShow(true);
             }}
           >
-            ＋ Novo produto
+            <Plus size={17} /> Novo produto
           </button>
         </div>
       }
@@ -659,11 +695,11 @@ function Products({ canDelete }) {
                       setShow(true);
                     }}
                   >
-                    Editar
+                    <Pencil size={15} /> Editar
                   </button>
                   {canDelete && (
                     <button className="delete" onClick={() => del(p)}>
-                      Excluir
+                      <Trash2 size={15} /> Excluir
                     </button>
                   )}
                 </td>
@@ -1039,7 +1075,7 @@ function CustomerOrders({ users }) {
           </div>
           <div className="order-actions">
             <button className="primary" disabled={!productId || !methodId}>
-              Registrar pedido e venda
+              <ShoppingCart size={17} /> Registrar pedido e venda
             </button>
             {product && (
               <a
@@ -1048,7 +1084,7 @@ function CustomerOrders({ users }) {
                 target="_blank"
                 rel="noreferrer"
               >
-                Enviar pelo WhatsApp
+                <Send size={16} /> Enviar pelo WhatsApp
               </a>
             )}
           </div>
@@ -1171,7 +1207,9 @@ function PaymentSettings() {
                 />
               </label>
             </div>
-            <button onClick={() => save(method)}>Salvar</button>
+            <button onClick={() => save(method)}>
+              <Save size={16} /> Salvar
+            </button>
           </article>
         ))}
       </div>
@@ -1238,19 +1276,19 @@ function Users({ canManage }) {
           className={tab === "orders" ? "active" : ""}
           onClick={() => setTab("orders")}
         >
-          Pedidos e vendas
+          <ReceiptText size={16} /> Pedidos e vendas
         </button>
         <button
           className={tab === "clients" ? "active" : ""}
           onClick={() => setTab("clients")}
         >
-          Clientes
+          <UsersRound size={16} /> Clientes
         </button>
         <button
           className={tab === "team" ? "active" : ""}
           onClick={() => setTab("team")}
         >
-          Equipe
+          <UserCog size={16} /> Equipe
         </button>
       </div>
       {tab === "orders" ? (
@@ -1272,7 +1310,7 @@ function Users({ canManage }) {
                   setShow(true);
                 }}
               >
-                ＋ Novo cadastro
+                <UserPlus size={17} /> Novo cadastro
               </button>
             )
           }
@@ -1343,10 +1381,10 @@ function Users({ canManage }) {
                             setShow(true);
                           }}
                         >
-                          Editar
+                          <Pencil size={15} /> Editar
                         </button>
                         <button className="delete" onClick={() => del(u)}>
-                          Excluir
+                          <Trash2 size={15} /> Excluir
                         </button>
                       </td>
                     )}
@@ -1581,6 +1619,7 @@ function UserForm({ user, onClose, onSaved }) {
             Cancelar
           </button>
           <button className="primary" disabled={saving}>
+            <Save size={16} />{" "}
             {saving ? "Salvando com segurança…" : "Salvar cadastro"}
           </button>
         </div>
@@ -1665,7 +1704,7 @@ function Catalog() {
                 target="_blank"
                 rel="noreferrer"
               >
-                Pedir pelo WhatsApp
+                <MessageCircle size={16} /> Pedir pelo WhatsApp
               </a>
             )}
           </article>
@@ -1729,7 +1768,7 @@ class ErrorBoundary extends React.Component {
               location.href = "/";
             }}
           >
-            Voltar ao login
+            <LogIn size={16} /> Voltar ao login
           </button>
         </main>
       );
