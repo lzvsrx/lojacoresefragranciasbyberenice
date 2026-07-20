@@ -1,15 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import {
   Camera,
   CreditCard,
   Download,
@@ -309,6 +300,88 @@ function Stat({ label, value, detail, tone }) {
     </article>
   );
 }
+function SalesChart({ data = [] }) {
+  if (!data.length) return <Empty text="Nenhuma venda registrada" />;
+  const width = 820,
+    height = 320,
+    left = 62,
+    right = 18,
+    top = 18,
+    bottom = 42,
+    plotWidth = width - left - right,
+    plotHeight = height - top - bottom,
+    maximum = Math.max(...data.map((item) => Number(item.value) || 0), 1),
+    step = Math.max(100, Math.ceil(maximum / 4 / 100) * 100),
+    ceiling = step * 4,
+    x = (index) =>
+      left +
+      (data.length === 1
+        ? plotWidth / 2
+        : (index * plotWidth) / (data.length - 1)),
+    y = (value) =>
+      top + plotHeight - ((Number(value) || 0) / ceiling) * plotHeight,
+    points = data.map((item, index) => [x(index), y(item.value)]),
+    line = points.map(([px, py]) => `${px},${py}`).join(" "),
+    area = `${left},${top + plotHeight} ${line} ${left + plotWidth},${top + plotHeight}`,
+    labelEvery = Math.max(1, Math.ceil(data.length / 7));
+  return (
+    <svg
+      className="sales-chart"
+      viewBox={`0 0 ${width} ${height}`}
+      role="img"
+      aria-label="Evolução das vendas por dia"
+    >
+      <defs>
+        <linearGradient id="sales-gradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor="#99623d" stopOpacity="0.32" />
+          <stop offset="95%" stopColor="#99623d" stopOpacity="0.03" />
+        </linearGradient>
+      </defs>
+      {[0, 1, 2, 3, 4].map((index) => {
+        const value = step * (4 - index),
+          py = top + (plotHeight * index) / 4;
+        return (
+          <g key={value}>
+            <line
+              x1={left}
+              y1={py}
+              x2={left + plotWidth}
+              y2={py}
+              className="chart-grid-line"
+            />
+            <text
+              x={left - 9}
+              y={py + 5}
+              textAnchor="end"
+              className="chart-axis-label"
+            >
+              R${value}
+            </text>
+          </g>
+        );
+      })}
+      <polygon points={area} fill="url(#sales-gradient)" />
+      <polyline points={line} className="chart-sales-line" />
+      {points.map(([px, py], index) => (
+        <g key={`${data[index].date}-${index}`}>
+          <circle cx={px} cy={py} r="4" className="chart-sales-point">
+            <title>{`${date(data[index].date)}: ${money(data[index].value)}`}</title>
+          </circle>
+          {(index % labelEvery === 0 || index === data.length - 1) && (
+            <text
+              x={px}
+              y={height - 13}
+              textAnchor="middle"
+              className="chart-axis-label"
+            >
+              {String(data[index].date).slice(5)}
+            </text>
+          )}
+        </g>
+      ))}
+    </svg>
+  );
+}
 function Dashboard() {
   const [d, setD] = useState(null);
   useEffect(() => {
@@ -350,26 +423,7 @@ function Dashboard() {
       <div className="dashboard-grid">
         <Card title="Evolução das vendas" subtitle="Receita por dia">
           <div className="chart">
-            <ResponsiveContainer>
-              <AreaChart data={d.chart}>
-                <defs>
-                  <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#99623d" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#99623d" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="date" tickFormatter={(x) => x.slice(5)} />
-                <YAxis tickFormatter={(x) => `R$${x}`} />
-                <Tooltip formatter={money} />
-                <Area
-                  type="monotone"
-                  dataKey="value"
-                  stroke="#99623d"
-                  fill="url(#g)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <SalesChart data={d.chart} />
           </div>
         </Card>
         <Card
