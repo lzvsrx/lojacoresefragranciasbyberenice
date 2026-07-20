@@ -14,7 +14,10 @@ import { randomBytes } from "crypto";
 import { copyFileSync, existsSync } from "fs";
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const databasePath = path.join(root, "server/data/store.db");
+const isVercel = Boolean(process.env.VERCEL);
+const databasePath = isVercel
+  ? path.join(process.env.TMPDIR || "/tmp", "store.db")
+  : path.join(root, "server/data/store.db");
 const seedPath = path.join(root, "server/data/store.seed.db");
 if (!existsSync(databasePath)) {
   if (!existsSync(seedPath))
@@ -153,7 +156,9 @@ app.use(
 app.use(
   cors({
     origin: (origin, callback) =>
-      !origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      !origin ||
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
+      origin === "https://lojacoresefragranciasbyberenice.vercel.app"
         ? callback(null, true)
         : callback(new Error("Origem não autorizada")),
     methods: ["GET", "POST", "PUT", "DELETE"],
@@ -278,18 +283,16 @@ app.post("/api/login", loginLimiter, (req, res) => {
   if (!bcrypt.compareSync(password, hash) || !u)
     return res.status(401).json({ error: "Usuário ou senha incorretos" });
   const user = safeUser(u);
-  res
-    .set("Cache-Control", "no-store")
-    .json({
-      user,
-      token: jwt.sign(user, secret, {
-        algorithm: "HS256",
-        expiresIn: "8h",
-        issuer: "cores-fragrancias-api",
-        audience: "cores-fragrancias-web",
-        subject: String(user.id),
-      }),
-    });
+  res.set("Cache-Control", "no-store").json({
+    user,
+    token: jwt.sign(user, secret, {
+      algorithm: "HS256",
+      expiresIn: "8h",
+      issuer: "cores-fragrancias-api",
+      audience: "cores-fragrancias-web",
+      subject: String(user.id),
+    }),
+  });
 });
 app.get("/api/me", auth(), (req, res) =>
   res.json(
@@ -598,14 +601,12 @@ app.post("/api/users", auth(["admin"]), async (req, res) => {
       );
     res.status(201).json({ id: Number(r.lastInsertRowid) });
   } catch (e) {
-    res
-      .status(400)
-      .json({
-        error:
-          e.code === "SQLITE_CONSTRAINT_UNIQUE"
-            ? "Este nome de usuário já está cadastrado"
-            : "Não foi possível criar o usuário",
-      });
+    res.status(400).json({
+      error:
+        e.code === "SQLITE_CONSTRAINT_UNIQUE"
+          ? "Este nome de usuário já está cadastrado"
+          : "Não foi possível criar o usuário",
+    });
   }
 });
 app.put("/api/users/:id", auth(["admin"]), async (req, res) => {
@@ -625,11 +626,9 @@ app.put("/api/users/:id", auth(["admin"]), async (req, res) => {
       db.prepare("SELECT COUNT(*) count FROM users WHERE role='admin'").get()
         .count <= 1
     )
-      return res
-        .status(400)
-        .json({
-          error: "O sistema precisa manter pelo menos um administrador",
-        });
+      return res.status(400).json({
+        error: "O sistema precisa manter pelo menos um administrador",
+      });
     const values = [
       b.username,
       b.role,
@@ -655,14 +654,12 @@ app.put("/api/users/:id", auth(["admin"]), async (req, res) => {
     }
     res.json({ ok: true });
   } catch (e) {
-    res
-      .status(400)
-      .json({
-        error:
-          e.code === "SQLITE_CONSTRAINT_UNIQUE"
-            ? "Este nome de usuário já está cadastrado"
-            : "Não foi possível atualizar o usuário",
-      });
+    res.status(400).json({
+      error:
+        e.code === "SQLITE_CONSTRAINT_UNIQUE"
+          ? "Este nome de usuário já está cadastrado"
+          : "Não foi possível atualizar o usuário",
+    });
   }
 });
 app.delete("/api/users/:id", auth(["admin"]), (req, res) => {
@@ -685,11 +682,9 @@ app.delete("/api/users/:id", auth(["admin"]), (req, res) => {
     db.prepare("DELETE FROM users WHERE id=?").run(id);
     res.json({ ok: true });
   } catch {
-    return res
-      .status(409)
-      .json({
-        error: "Este usuário possui vendas vinculadas e não pode ser excluído",
-      });
+    return res.status(409).json({
+      error: "Este usuário possui vendas vinculadas e não pode ser excluído",
+    });
   }
 });
 app.get(
@@ -863,6 +858,9 @@ app.get("/{*splat}", (req, res, next) =>
 app.use((err, _req, res, _next) =>
   res.status(500).json({ error: err.message || "Erro interno" }),
 );
-app.listen(process.env.PORT || 3001, () =>
-  console.log("API em http://localhost:3001"),
-);
+if (!isVercel)
+  app.listen(process.env.PORT || 3001, () =>
+    console.log("API em http://localhost:3001"),
+  );
+
+export default app;
