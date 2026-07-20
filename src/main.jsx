@@ -703,7 +703,9 @@ function Products({ canDelete }) {
         setMovements(history);
       },
     );
-  useEffect(load, []);
+  useEffect(() => {
+    void load();
+  }, []);
   const filtered = products.filter((x) =>
     [x.name, x.brand, x.type, x.style, x.id].some((v) =>
       String(v || "")
@@ -937,7 +939,9 @@ function Sales() {
       setSales(s);
       if (!selected) setSelected(p.find((x) => x.quantity > 0)?.id);
     });
-  useEffect(load, []);
+  useEffect(() => {
+    void load();
+  }, []);
   const p = products.find((x) => x.id === +selected);
   const sell = async () => {
     try {
@@ -1074,7 +1078,9 @@ function CustomerOrders({ users, canManage }) {
       if (!methodId && m.some((x) => x.active))
         setMethodId(String(m.find((x) => x.active).id));
     });
-  useEffect(load, []);
+  useEffect(() => {
+    void load();
+  }, []);
   const exportSales = async () => {
     try {
       const blob = await api("/export/sales.csv"),
@@ -1369,7 +1375,9 @@ function CustomerOrders({ users, canManage }) {
 function PaymentSettings() {
   const [methods, setMethods] = useState([]);
   const load = () => api("/payment-methods").then((items) => setMethods(items));
-  useEffect(load, []);
+  useEffect(() => {
+    void load();
+  }, []);
   const change = (id, key, value) =>
     setMethods(methods.map((x) => (x.id === id ? { ...x, [key]: value } : x)));
   const save = async (method) => {
@@ -1468,7 +1476,9 @@ function Users({ canManage }) {
     [tab, setTab] = useState("clients"),
     [query, setQuery] = useState("");
   const load = () => api("/users").then((items) => setUsers(items));
-  useEffect(load, []);
+  useEffect(() => {
+    void load();
+  }, []);
   const del = async (u) => {
     if (confirm(`Excluir permanentemente ${u.name}?`))
       try {
@@ -1998,7 +2008,7 @@ class ErrorBoundary extends React.Component {
   }
   componentDidCatch(error, info) {
     console.error("Erro da interface", error, info);
-    const recoveryKey = "interface-recovery-20260720-2";
+    const recoveryKey = "interface-recovery-20260720-3";
     if (!sessionStorage.getItem(recoveryKey)) {
       sessionStorage.setItem(recoveryKey, "1");
       window.setTimeout(() => {
@@ -2013,7 +2023,7 @@ class ErrorBoundary extends React.Component {
           <img src="/assets/logo1.jpeg" />
           <h1>Não foi possível abrir esta tela</h1>
           <p>{this.state.error.message || "Ocorreu um erro inesperado."}</p>
-          <small>Versão corrigida 2026.07.20.2</small>
+          <small>Versão corrigida 2026.07.20.3</small>
           <button
             className="primary"
             onClick={() => {
