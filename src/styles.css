@@ -1060,6 +1060,15 @@ td {
   width: fit-content;
   margin-top: 6px;
 }
+.storage-notice {
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  border: 1px solid #ded5c9;
+  border-radius: 16px;
+  background: #f5f0e8;
+  color: #594c3f;
+}
+
 .load-error {
   display: flex;
   flex-wrap: wrap;

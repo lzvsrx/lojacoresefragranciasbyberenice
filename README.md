@@ -148,13 +148,11 @@ As credenciais do banco ou provedor não devem ser inseridas nas instruções. A
 
 O servidor lê `.env` automaticamente. Use `.env.example` como referência e substitua a chave de exemplo antes de publicar.
 
-| Variável             | Finalidade                                       |
-| -------------------- | ------------------------------------------------ |
-| `PORT`               | Porta do servidor; padrão `3001`.                |
-| `JWT_SECRET`         | Chave das sessões; obrigatória com banco remoto. |
-| `TURSO_DATABASE_URL` | Endereço do Turso. Vazio usa SQLite local.       |
-| `TURSO_AUTH_TOKEN`   | Credencial de acesso ao Turso.                   |
-| `DATABASE_PATH`      | Caminho opcional do arquivo SQLite local.        |
+| Variável        | Finalidade                                       |
+| --------------- | ------------------------------------------------ |
+| `PORT`          | Porta do servidor; padrão `3001`.                |
+| `JWT_SECRET`    | Chave das sessões; gerada localmente se ausente. |
+| `DATABASE_PATH` | Caminho opcional do arquivo SQLite local.        |
 
 Gere uma chave aleatória com:
 
@@ -176,25 +174,17 @@ npm run backup
 
 O comando utiliza o mecanismo de backup do SQLite, incluindo alterações em WAL, e cria uma cópia consistente em `server/data/backups/`. Guarde também uma cópia fora do computador.
 
-Com Turso configurado, esse comando continua copiando **o arquivo local**. O banco remoto precisa de backup pelo serviço Turso.
+O backup copia o banco SQLite local usado pelo servidor.
 
 `npm run create-seed` recria a base pública a partir dos dados locais, removendo informações pessoais, pedidos online, endereços de entrega, protocolos e configuração privada do fornecedor, redefinindo o administrador de exemplo e desativando as demais credenciais. Use apenas ao preparar uma base para distribuição. O banco operacional não deve ser enviado ao GitHub.
 
-## Ativar o banco permanente na Vercel
+## SQLite local e hospedagem
 
-O armazenamento local das funções da Vercel é temporário; consulte a [documentação sobre SQLite na Vercel](https://vercel.com/kb/guide/is-sqlite-supported-in-vercel). Sem banco remoto, a aplicação publicada permite consulta e login, mas bloqueia cadastros, alterações e vendas e mostra um aviso na interface.
+O servidor usa exclusivamente `server/data/store.db` (ou o caminho definido em `DATABASE_PATH`). As variáveis antigas `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` não selecionam mais o banco da aplicação. O arquivo existente é preservado; a base de exemplo só é copiada se o banco operacional não existir.
 
-**Pendente:** criar o Turso e configurar as credenciais na hospedagem. O suporte e o comando de migração estão implementados; a conexão real em produção ainda não foi validada.
+Execute `npm start` para usar o projeto compilado ou `npm run dev` para desenvolvimento. Cadastros, pedidos, vendas e estoque são gravados no arquivo SQLite local.
 
-1. Conecte um banco **Turso vazio** pelo [Marketplace da Vercel](https://vercel.com/marketplace/tursocloud).
-2. Configure `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` e uma chave própria `JWT_SECRET` na Vercel para o ambiente desejado.
-3. Pause cadastros e vendas e pare o servidor local. Execute `npm run backup` antes de migrar.
-4. Coloque as mesmas três variáveis no `.env` local e execute `npm run migrate:cloud`.
-5. Após concluir, publique novamente na Vercel e reinicie o projeto local. Ambos usarão o mesmo banco remoto.
-
-A migração copia produtos, imagens, usuários e histórico, confere as contagens e mantém uma cópia da origem em `server/data/backups/`. Se houver interrupção, execute novamente para retomar a mesma cópia. O comando recusa sobrescrever um destino já ativado. A aplicação não abre um banco marcado com migração incompleta.
-
-Alterações feitas somente no SQLite depois da cópia não são sincronizadas automaticamente com o Turso. Mantenha as gravações pausadas até os dois ambientes apontarem para o banco remoto.
+Na Vercel, o arquivo em `/tmp` é temporário. A aplicação permite consulta e login, mas mantém o bloqueio de gravações para evitar perda de cadastros e vendas. Para operar com SQLite em produção, hospede o servidor em um ambiente com disco persistente. Publicar no GitHub não transfere o banco operacional.
 
 ## Validade e ordem dos produtos
 

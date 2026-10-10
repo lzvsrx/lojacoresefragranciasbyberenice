@@ -41,44 +41,15 @@ const databasePath =
   (isVercel
     ? path.join(process.env.TMPDIR || "/tmp", "store.db")
     : path.join(root, "server/data/store.db"));
-if (!process.env.TURSO_DATABASE_URL)
-  mkdirSync(path.dirname(databasePath), {
-    recursive: true,
-  });
+mkdirSync(path.dirname(databasePath), { recursive: true });
 const seedPath = path.join(root, "server/data/store.seed.db");
-if (!process.env.TURSO_DATABASE_URL && !existsSync(databasePath)) {
+if (!existsSync(databasePath)) {
   if (!existsSync(seedPath))
     throw new Error("Banco inicial server/data/store.seed.db não encontrado");
   copyFileSync(seedPath, databasePath);
 }
-const db = await createDatabase({
-  filename: databasePath,
-  url: process.env.TURSO_DATABASE_URL,
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
-if (
-  db.remote &&
-  !(await db
-    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'")
-    .get())
-)
-  throw new Error(
-    "Banco persistente vazio. Execute npm run migrate:cloud antes de publicar",
-  );
-if (
-  db.remote &&
-  (await db
-    .prepare("SELECT 1 FROM sqlite_master WHERE name='app_cloud_migration'")
-    .get())
-) {
-  const migration = await db
-    .prepare("SELECT status FROM app_cloud_migration WHERE id=1")
-    .get();
-  if (migration?.status !== "ready")
-    throw new Error("A migração do banco ainda não foi concluída");
-}
-if (db.remote && !process.env.JWT_SECRET)
-  throw new Error("Configure JWT_SECRET junto ao banco persistente");
+// Always use the project SQLite database, including when legacy Turso variables exist.
+const db = await createDatabase({ filename: databasePath });
 await db.pragma("journal_mode = WAL");
 await db.pragma("foreign_keys = ON");
 await db.pragma("busy_timeout = 5000");
@@ -295,20 +266,19 @@ app.use("/api", (_req, res, next) => {
 });
 app.get("/api/storage-status", (_req, res) =>
   res.json({
-    persistent: !isVercel || db.remote,
-    writable: !isVercel || db.remote,
+    persistent: !isVercel,
+    writable: !isVercel,
   }),
 );
 app.use("/api", (req, res, next) => {
   if (
     isVercel &&
-    !db.remote &&
     !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
     !["/login", "/customer/login"].includes(req.path)
   )
     return res.status(503).json({
       error:
-        "Cadastros e vendas indisponíveis: o administrador precisa conectar o banco persistente da loja",
+        "Cadastros e vendas indisponíveis na Vercel: hospede o servidor SQLite com disco persistente para preservar os dados",
     });
   next();
 });

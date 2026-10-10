@@ -439,9 +439,9 @@ function Shell({ user, setUser }) {
       <section className="content">
         <Header page={labels[page]} user={user} setUser={setUser} />
         {storageWarning && (
-          <div className="load-error" role="alert">
-            Cadastros e vendas estão desativados até a conexão do banco
-            permanente da loja.
+          <div className="storage-notice" role="note">
+            Modo de consulta na Vercel. Para cadastrar, vender e atualizar o
+            estoque, abra o sistema local conectado ao banco da loja.
           </div>
         )}
         {loadError && (
