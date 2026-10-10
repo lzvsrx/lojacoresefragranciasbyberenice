@@ -25,7 +25,7 @@ import {
   numberValue,
   dateValue,
 } from "./validation.js";
-import { storeToday } from "../src/expiration.js";
+import { storeToday, expirationStatus } from "../src/expiration.js";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 if (process.env.NODE_ENV !== "test" && existsSync(path.join(root, ".env")))
   loadEnvFile(path.join(root, ".env"));
@@ -123,6 +123,17 @@ await db.transaction(async () => {
     FOREIGN KEY(product_id) REFERENCES products(id),
     FOREIGN KEY(user_id) REFERENCES users(id),
     FOREIGN KEY(sale_id) REFERENCES sales(id)
+  )`);
+  await db.exec(`CREATE TABLE IF NOT EXISTS expiration_losses(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    product_name TEXT NOT NULL,
+    expiration_date TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    unit_price_cents INTEGER NOT NULL,
+    total_cents INTEGER NOT NULL,
+    user_id INTEGER REFERENCES users(id),
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP
   )`);
   const seedPayment = db.prepare(
     "INSERT OR IGNORE INTO payment_methods(code,name,active,requires_reference,max_installments,instructions) VALUES(?,?,?,?,?,?)",
@@ -809,6 +820,87 @@ app.post("/api/sales/:id/cancel", auth(["admin"]), async (req, res) => {
     });
   }
 });
+app.get(
+  "/api/expiration-losses",
+  auth(["admin", "funcionario"]),
+  async (_req, res) => {
+    const items = await db
+      .prepare(
+        `SELECT l.*,u.name user_name FROM expiration_losses l
+    LEFT JOIN users u ON u.id=l.user_id ORDER BY l.id DESC`,
+      )
+      .all();
+    res.json({
+      items,
+      total_cents: items.reduce((sum, item) => sum + item.total_cents, 0),
+    });
+  },
+);
+app.post(
+  "/api/expiration-losses",
+  auth(["admin", "funcionario"]),
+  async (req, res) => {
+    const ids = req.body?.product_ids;
+    if (
+      !Array.isArray(ids) ||
+      !ids.length ||
+      ids.length > 5000 ||
+      ids.some((id) => !Number.isSafeInteger(id) || id < 1) ||
+      new Set(ids).size !== ids.length
+    )
+      throw inputError("Selecione produtos vencidos válidos");
+    const result = await db.transaction(async () => {
+      const today = storeToday();
+      let total = 0;
+      for (const id of ids) {
+        const product = await db
+          .prepare("SELECT * FROM products WHERE id=?")
+          .get(id);
+        if (
+          !product ||
+          product.quantity <= 0 ||
+          expirationStatus(product.expiration_date, today)?.status !== "expired"
+        )
+          throw inputError(
+            "A lista mudou. Atualize e selecione apenas produtos vencidos com estoque.",
+            409,
+          );
+        const cents = Math.round(numberValue(product.price, "Preço") * 100);
+        const quantity = numberValue(product.quantity, "Quantidade", {
+          integer: true,
+          min: 1,
+        });
+        const loss = cents * quantity;
+        if (!Number.isSafeInteger(loss) || !Number.isSafeInteger(total + loss))
+          throw inputError("Valor total acima do limite permitido");
+        await db
+          .prepare(
+            `INSERT INTO expiration_losses(product_id,product_name,expiration_date,quantity,unit_price_cents,total_cents,user_id)
+        VALUES(?,?,?,?,?,?,?)`,
+          )
+          .run(
+            id,
+            product.name,
+            product.expiration_date,
+            quantity,
+            cents,
+            loss,
+            req.user.id,
+          );
+        await db
+          .prepare(
+            `INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id)
+        VALUES(?,'SAIDA',?,?,0,'Retirada por vencimento',?)`,
+          )
+          .run(id, -quantity, quantity, req.user.id);
+        await db.prepare("UPDATE products SET quantity=0 WHERE id=?").run(id);
+        total += loss;
+      }
+      return { count: ids.length, total_cents: total };
+    })();
+    res.status(201).json(result);
+  },
+);
 app.get(
   "/api/stock-movements",
   auth(["admin", "funcionario"]),

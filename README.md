@@ -1,4 +1,4 @@
-﻿# Cores & Fragrâncias by Berenice
+# Cores & Fragrâncias by Berenice
 
 Sistema de catálogo, vendas e estoque com React, API Node.js e banco SQLite local ou Turso remoto.
 
@@ -117,6 +117,14 @@ Os produtos aparecem pelo identificador de cadastro, do mais recente para o mais
 
 ## Correções implementadas
 
+### Retirada de vencidos e lista de perdas
+
+Na tela **Produtos**, administradores e funcionários podem usar **Retirar vencido** em um item ou **Retirar vencidos do estoque** para todos os vencidos com saldo. A ação pede confirmação, zera o estoque e registra uma saída com motivo `Retirada por vencimento`, preservando o cadastro e o histórico.
+
+A seção **Perdas por vencimento** mostra data da retirada, produto, validade, quantidade, preço unitário, valor perdido e responsável, além do total acumulado. Os valores são estimados pelo **preço de venda cadastrado no momento da retirada**, pois o sistema não possui custo de compra. Alterações posteriores no nome ou preço não modificam a perda registrada.
+
+Produtos que vencem hoje, ainda válidos ou sem data não podem ser retirados por essa função. A operação é transacional e impede baixar o mesmo estoque duas vezes. Repor estoque posteriormente permite uma nova retirada, registrada separadamente.
+
 - Login: oito falhas por usuário normalizado e IP em 15 minutos; acessos bem-sucedidos não consomem a cota.
 - API: 500 requisições por 15 minutos, com login e leitura de imagens fora da contagem para evitar bloqueio ao carregar o catálogo.
 - Validação de preços, quantidades inteiras, datas, parcelas, clientes e formas de pagamento no servidor.
@@ -160,7 +168,7 @@ Exportações de produtos e vendas protegem células que poderiam ser interpreta
 
 ## Validações realizadas
 
-A suíte local passou com **18 testes**, cobrindo autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração e bloqueio de gravações na Vercel sem banco persistente.
+A suíte local passou com **19 testes**, cobrindo autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração e bloqueio de gravações na Vercel sem banco persistente.
 
 Também foram verificados a compilação, os fluxos principais em navegador e o comportamento responsivo. A auditoria de dependências não apontou vulnerabilidades na verificação realizada; reavalie esse resultado ao atualizar o projeto.
 

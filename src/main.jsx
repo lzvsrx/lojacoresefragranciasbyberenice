@@ -822,6 +822,8 @@ function Modal({ title, onClose, children }) {
 }
 function Products({ canDelete }) {
   const today = useStoreToday();
+  const [losses, setLosses] = useState({ items: [], total_cents: 0 });
+  const [removingExpired, setRemovingExpired] = useState(false);
   const [products, setProducts] = useState([]),
     [movements, setMovements] = useState([]),
     [q, setQ] = useState(""),
@@ -829,12 +831,15 @@ function Products({ canDelete }) {
     [show, setShow] = useState(false),
     [stockProduct, setStockProduct] = useState(null);
   const load = () =>
-    Promise.all([api("/products"), api("/stock-movements")]).then(
-      ([items, history]) => {
-        setProducts(items);
-        setMovements(history);
-      },
-    );
+    Promise.all([
+      api("/products"),
+      api("/stock-movements"),
+      api("/expiration-losses"),
+    ]).then(([items, history, lossHistory]) => {
+      setProducts(items);
+      setMovements(history);
+      setLosses(lossHistory);
+    });
   useEffect(() => {
     void load().catch(reportLoadError);
   }, []);
@@ -845,6 +850,37 @@ function Products({ canDelete }) {
         .includes(q.toLowerCase()),
     ),
   );
+  const expired = products.filter(
+    (p) =>
+      p.quantity > 0 &&
+      expirationStatus(p.expiration_date, today)?.status === "expired",
+  );
+  const removeExpired = async (items) => {
+    if (removingExpired || !items.length) return;
+    const total = items.reduce(
+      (sum, p) => sum + Math.round(p.price * 100) * p.quantity,
+      0,
+    );
+    if (
+      !confirm(
+        `Retirar todo o estoque de ${items.length} produto(s) vencido(s)? Perda estimada pelo preço de venda: ${money(total / 100)}. A baixa ficará registrada no histórico.`,
+      )
+    )
+      return;
+    setRemovingExpired(true);
+    try {
+      await api("/expiration-losses", {
+        method: "POST",
+        body: JSON.stringify({ product_ids: items.map((p) => p.id) }),
+      });
+      await load();
+    } catch (e) {
+      alert(e.message);
+      void load().catch(reportLoadError);
+    } finally {
+      setRemovingExpired(false);
+    }
+  };
   const del = async (p) => {
     if (!confirm(`Excluir ${p.name}?`)) return;
     try {
@@ -915,6 +951,60 @@ function Products({ canDelete }) {
     >
       <ExpirationAlerts products={products} today={today} />
       <div className="toolbar">
+        <button
+          className="delete"
+          disabled={removingExpired || !expired.length}
+          onClick={() => removeExpired(expired)}
+        >
+          {removingExpired
+            ? "Retirando…"
+            : `Retirar vencidos do estoque (${expired.length})`}
+        </button>
+      </div>
+      <details className="stock-history">
+        <summary>
+          Perdas por vencimento: {money(losses.total_cents / 100)} (
+          {losses.items.length} retiradas)
+        </summary>
+        <p>
+          Valores estimados pelo preço de venda no momento da retirada; não
+          representam o custo de compra. Os cadastros dos produtos são
+          preservados.
+        </p>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Retirada</th>
+                <th>Produto</th>
+                <th>Validade</th>
+                <th>Quantidade</th>
+                <th>Preço unitário</th>
+                <th>Valor perdido</th>
+                <th>Responsável</th>
+              </tr>
+            </thead>
+            <tbody>
+              {losses.items.map((item) => (
+                <tr key={item.id}>
+                  <td>{date(item.created_at)}</td>
+                  <td>
+                    {item.product_name}
+                    <small className="block">#{item.product_id}</small>
+                  </td>
+                  <td>{date(item.expiration_date)}</td>
+                  <td>{item.quantity} un.</td>
+                  <td>{money(item.unit_price_cents / 100)}</td>
+                  <td>{money(item.total_cents / 100)}</td>
+                  <td>{item.user_name || "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {!losses.items.length && <Empty />}
+        </div>
+      </details>
+      <div className="toolbar">
         <input
           className="search"
           placeholder="Buscar por nome, marca, tipo ou código…"
@@ -971,6 +1061,17 @@ function Products({ canDelete }) {
                   <ExpirationBadge value={p.expiration_date} today={today} />
                 </td>
                 <td className="row-actions">
+                  {p.quantity > 0 &&
+                    expirationStatus(p.expiration_date, today)?.status ===
+                      "expired" && (
+                      <button
+                        className="delete"
+                        disabled={removingExpired}
+                        onClick={() => removeExpired([p])}
+                      >
+                        Retirar vencido
+                      </button>
+                    )}
                   <button onClick={() => setStockProduct(p)}>
                     <Plus size={15} /> Estoque
                   </button>

@@ -377,6 +377,81 @@ test("API regression suite uses an isolated database", async (t) => {
   );
 
   await t.test(
+    "expired stock withdrawal is atomic, auditable and cannot be duplicated",
+    async () => {
+      const { storeToday } = await import("../src/expiration.js");
+      const expired = await request("/products", "POST", {
+        ...product,
+        name: "Vencido teste",
+        quantity: 3,
+        price: 12.34,
+        expiration_date: "2000-01-01",
+      });
+      const expiredId = expired.body.id;
+      const todayProduct = await request("/products", "POST", {
+        ...product,
+        expiration_date: storeToday(),
+      });
+      assert.equal(
+        (
+          await request("/expiration-losses", "POST", {
+            product_ids: [expiredId, todayProduct.body.id],
+          })
+        ).status,
+        409,
+      );
+      assert.equal(
+        db.prepare("SELECT quantity FROM products WHERE id=?").get(expiredId)
+          .quantity,
+        3,
+      );
+      assert.equal(
+        db.prepare("SELECT COUNT(*) n FROM expiration_losses").get().n,
+        0,
+      );
+      assert.equal(
+        (
+          await request("/expiration-losses", "POST", {
+            product_ids: [expiredId, expiredId],
+          })
+        ).status,
+        400,
+      );
+      assert.equal(
+        (await request("/expiration-losses", "GET", undefined, false)).status,
+        401,
+      );
+      const withdrawals = await Promise.all([
+        request("/expiration-losses", "POST", { product_ids: [expiredId] }),
+        request("/expiration-losses", "POST", { product_ids: [expiredId] }),
+      ]);
+      assert.deepEqual(withdrawals.map((r) => r.status).sort(), [201, 409]);
+      assert.equal(
+        db.prepare("SELECT quantity FROM products WHERE id=?").get(expiredId)
+          .quantity,
+        0,
+      );
+      const movement = db
+        .prepare("SELECT * FROM stock_movements WHERE product_id=?")
+        .get(expiredId);
+      assert.equal(movement.quantity, -3);
+      assert.equal(movement.movement_type, "SAIDA");
+      assert.equal(movement.reason, "Retirada por vencimento");
+      db.prepare(
+        "UPDATE products SET name='Nome novo',price=99 WHERE id=?",
+      ).run(expiredId);
+      const history = await request("/expiration-losses");
+      assert.equal(history.body.total_cents, 3702);
+      assert.equal(history.body.items[0].product_name, "Vencido teste");
+      assert.equal(history.body.items[0].unit_price_cents, 1234);
+      assert.equal(history.body.items[0].quantity, 3);
+      assert.equal(
+        (await request(`/products/${expiredId}`, "DELETE")).status,
+        409,
+      );
+    },
+  );
+  await t.test(
     "password change invalidates previously issued sessions",
     async () => {
       const result = await request("/users/1", "PUT", {
