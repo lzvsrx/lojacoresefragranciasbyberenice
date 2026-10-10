@@ -28,6 +28,7 @@ import "./styles.css";
 import { expirationStatus, storeToday } from "./expiration.js";
 import { paymentGuidance } from "./payment-guidance.js";
 import { matchesProduct } from "./search.js";
+import { parseProductData } from "./product-data.js";
 import { CommerceSettings, OrderArea, ServiceArea } from "./commerce.jsx";
 const Storefront = React.lazy(() => import("./storefront.jsx"));
 
@@ -949,9 +950,10 @@ function Products({ canDelete }) {
       api("/stock-movements"),
       api("/expiration-losses"),
     ]).then(([items, history, lossHistory]) => {
-      setProducts(items);
-      setMovements(history);
-      setLosses(lossHistory);
+      const data = parseProductData(items, history, lossHistory);
+      setProducts(data.products);
+      setMovements(data.movements);
+      setLosses(data.losses);
     });
   useEffect(() => {
     void load().catch(reportLoadError);
@@ -2472,13 +2474,6 @@ class ErrorBoundary extends React.Component {
   }
   componentDidCatch(error, info) {
     console.error("Erro da interface", error, info);
-    const recoveryKey = "interface-recovery-20260720-3";
-    if (!sessionStorage.getItem(recoveryKey)) {
-      sessionStorage.setItem(recoveryKey, "1");
-      window.setTimeout(() => {
-        window.location.replace(`/?atualizacao=${Date.now()}`);
-      }, 100);
-    }
   }
   render() {
     if (this.state.error)
@@ -2487,15 +2482,11 @@ class ErrorBoundary extends React.Component {
           <img src="/assets/logo1.jpeg" />
           <h1>Não foi possível abrir esta tela</h1>
           <p>{this.state.error.message || "Ocorreu um erro inesperado."}</p>
-          <small>Versão corrigida 2026.07.20.3</small>
           <button
             className="primary"
-            onClick={() => {
-              localStorage.removeItem("token");
-              location.href = "/";
-            }}
+            onClick={() => window.location.reload()}
           >
-            <LogIn size={16} /> Voltar ao login
+            Tentar novamente
           </button>
         </main>
       );
