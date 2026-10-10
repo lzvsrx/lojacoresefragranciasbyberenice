@@ -581,6 +581,29 @@ small {
   border-radius: 50%;
   object-fit: cover;
 }
+.login-customer-links {
+  display: grid;
+  gap: 12px;
+  margin: 24px 0;
+  padding-top: 18px;
+  border-top: 1px solid #ddd5ce;
+}
+.login-customer-links p {
+  margin: 0;
+  color: #796b60;
+  font-size: 13px;
+}
+.login-customer-links > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.login-customer-links .button {
+  flex: 1;
+  justify-content: center;
+  text-align: center;
+  font-size: 12px;
+}
 .login h1 {
   font: 600 44px "Playfair Display";
   margin: 10px 0;

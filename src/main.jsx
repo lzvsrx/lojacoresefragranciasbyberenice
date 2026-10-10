@@ -222,9 +222,6 @@ function Login({ onLogin }) {
       <section className="login-card">
         <img src="/assets/logo1.jpeg" />
         <p className="eyebrow">GESTÃO & BELEZA</p>
-        <a className="admin-store-link" href="#/loja">
-          ← Voltar à loja · acesso de clientes
-        </a>
         <h1>Cores & Fragrâncias</h1>
         <p className="muted">
           Entre para cuidar das vendas e do estoque da loja.
@@ -255,6 +252,23 @@ function Login({ onLogin }) {
           </button>
         </form>
         <small>Use o acesso fornecido pelo administrador da loja.</small>
+        <nav
+          className="login-customer-links"
+          aria-label="Loja e acesso de clientes"
+        >
+          <p>Quer comprar? Acesse o espaço do cliente.</p>
+          <a className="button primary" href="#/loja">
+            <ShoppingBag size={17} /> Página principal da loja
+          </a>
+          <div>
+            <a className="button" href="#/cliente/entrar">
+              <LogIn size={17} /> Login do cliente
+            </a>
+            <a className="button" href="#/cliente/cadastrar">
+              <UsersRound size={17} /> Cadastro de cliente
+            </a>
+          </div>
+        </nav>
       </section>
       <aside className="login-art">
         <div>
