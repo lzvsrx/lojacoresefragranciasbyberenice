@@ -1,0 +1,1262 @@
+{
+  "generated_at": "2026-10-10T21:11:41.191Z",
+  "data": "Dados exclusivamente fictícios; banco operacional não utilizado",
+  "captures": [
+    {
+      "number": "01",
+      "title": "Página principal da loja",
+      "area": "Público",
+      "route": "#/loja",
+      "file": "01-loja-principal.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Navegação da loja"
+        },
+        {
+          "number": 2,
+          "label": "Apresentação e acessos"
+        },
+        {
+          "number": 3,
+          "label": "Catálogo, busca e filtros"
+        },
+        {
+          "number": 4,
+          "label": "Contato e políticas"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "02",
+      "title": "Pesquisa e filtros de produtos",
+      "area": "Público",
+      "route": "#/loja",
+      "file": "02-pesquisa-produtos.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Pesquisa, filtros e resultados"
+        },
+        {
+          "number": 2,
+          "label": "Navegação da loja"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "03",
+      "title": "Detalhes do produto",
+      "area": "Público",
+      "route": "#/produto/1",
+      "file": "03-detalhes-produto.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Navegação da loja"
+        },
+        {
+          "number": 2,
+          "label": "Descrição, composição e cuidados"
+        },
+        {
+          "number": 3,
+          "label": "Adicionar à sacola"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "04",
+      "title": "Login do cliente",
+      "area": "Cliente",
+      "route": "#/cliente/entrar",
+      "file": "04-login-cliente.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Navegação da loja"
+        },
+        {
+          "number": 2,
+          "label": "Apresentação da área do cliente"
+        },
+        {
+          "number": 3,
+          "label": "Usuário, senha e ajuda"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "05",
+      "title": "Cadastro público de cliente",
+      "area": "Cliente",
+      "route": "#/cliente/cadastrar",
+      "file": "05-cadastro-cliente.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Dados de cadastro e senha"
+        },
+        {
+          "number": 2,
+          "label": "Aviso de privacidade"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "06",
+      "title": "Área do cliente sem sessão",
+      "area": "Cliente",
+      "route": "#/cliente",
+      "file": "06-conta-sem-login.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Pedido de autenticação"
+        },
+        {
+          "number": 2,
+          "label": "Navegação da loja"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "07",
+      "title": "Sacola vazia",
+      "area": "Cliente",
+      "route": "#/sacola",
+      "file": "07-sacola-vazia.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Estado vazio e retorno ao catálogo"
+        },
+        {
+          "number": 2,
+          "label": "Navegação da loja"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "08",
+      "title": "Atendimento sem login",
+      "area": "Público",
+      "route": "#/atendimento",
+      "file": "08-atendimento-sem-login.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Conteúdo desta área"
+        },
+        {
+          "number": 2,
+          "label": "Contato e políticas"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "09",
+      "title": "Identificação e condições de compra",
+      "area": "Políticas públicas",
+      "route": "#/politicas/compra",
+      "file": "09-politica-compra.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Navegação da loja"
+        },
+        {
+          "number": 2,
+          "label": "Navegação entre políticas"
+        },
+        {
+          "number": 3,
+          "label": "Identificação do fornecedor"
+        },
+        {
+          "number": 4,
+          "label": "Canal de solicitação"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "10",
+      "title": "Entrega e pagamento",
+      "area": "Políticas públicas",
+      "route": "#/politicas/entrega",
+      "file": "10-politica-entrega.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Navegação da loja"
+        },
+        {
+          "number": 2,
+          "label": "Navegação entre políticas"
+        },
+        {
+          "number": 3,
+          "label": "Identificação do fornecedor"
+        },
+        {
+          "number": 4,
+          "label": "Canal de solicitação"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "11",
+      "title": "Trocas, devoluções e arrependimento",
+      "area": "Políticas públicas",
+      "route": "#/politicas/devolucoes",
+      "file": "11-politica-devolucoes.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Navegação da loja"
+        },
+        {
+          "number": 2,
+          "label": "Navegação entre políticas"
+        },
+        {
+          "number": 3,
+          "label": "Identificação do fornecedor"
+        },
+        {
+          "number": 4,
+          "label": "Canal de solicitação"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "12",
+      "title": "Privacidade e direitos do cliente",
+      "area": "Políticas públicas",
+      "route": "#/politicas/privacidade",
+      "file": "12-politica-privacidade.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Navegação da loja"
+        },
+        {
+          "number": 2,
+          "label": "Navegação entre políticas"
+        },
+        {
+          "number": 3,
+          "label": "Identificação do fornecedor"
+        },
+        {
+          "number": 4,
+          "label": "Canal de solicitação"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "13",
+      "title": "Minha conta de cliente",
+      "area": "Cliente autenticado",
+      "route": "#/cliente",
+      "file": "13-minha-conta.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Cadastro do cliente"
+        },
+        {
+          "number": 2,
+          "label": "Pedidos, sacola, dados e saída"
+        },
+        {
+          "number": 3,
+          "label": "Navegação da loja"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "14",
+      "title": "Sacola com produtos e conferência",
+      "area": "Cliente autenticado",
+      "route": "#/sacola",
+      "file": "14-sacola-preenchida.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Produtos, quantidades e remoção"
+        },
+        {
+          "number": 2,
+          "label": "Resumo e finalização"
+        },
+        {
+          "number": 3,
+          "label": "Navegação da loja"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "15",
+      "title": "Checkout — retirada e pagamento",
+      "area": "Cliente autenticado",
+      "route": "#/checkout",
+      "file": "15-checkout-retirada.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Cliente, retirada e pagamento"
+        },
+        {
+          "number": 2,
+          "label": "Resumo e total"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "16",
+      "title": "Checkout — endereço e frete",
+      "area": "Cliente autenticado",
+      "route": "#/checkout",
+      "file": "16-checkout-entrega.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Endereço e região atendida"
+        },
+        {
+          "number": 2,
+          "label": "Produtos, frete e total"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "17",
+      "title": "Checkout — revisão e aceite",
+      "area": "Cliente autenticado",
+      "route": "#/checkout",
+      "file": "17-checkout-confirmacao.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Total, condições e confirmação"
+        },
+        {
+          "number": 2,
+          "label": "Aceite das condições"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "18",
+      "title": "Lista de pedidos do cliente",
+      "area": "Cliente autenticado",
+      "route": "#/pedidos",
+      "file": "18-meus-pedidos.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Atualizar consulta"
+        },
+        {
+          "number": 2,
+          "label": "Número, data, situação e total"
+        },
+        {
+          "number": 3,
+          "label": "Navegação da loja"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "19",
+      "title": "Pedido aguardando pagamento",
+      "area": "Cliente autenticado",
+      "route": "#/pedidos/1",
+      "file": "19-pedido-pendente.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Voltar, imprimir e atualizar"
+        },
+        {
+          "number": 2,
+          "label": "Produtos, total, entrega e fornecedor"
+        },
+        {
+          "number": 3,
+          "label": "Histórico e atendimento"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "20",
+      "title": "Pedido pago em separação",
+      "area": "Cliente autenticado",
+      "route": "#/pedidos/2",
+      "file": "20-pedido-em-separacao.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Voltar, imprimir e atualizar"
+        },
+        {
+          "number": 2,
+          "label": "Produtos, total, entrega e fornecedor"
+        },
+        {
+          "number": 3,
+          "label": "Histórico e atendimento"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "21",
+      "title": "Atendimento, cadastro e protocolos",
+      "area": "Cliente autenticado",
+      "route": "#/atendimento",
+      "file": "21-atendimento-cliente.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Abrir solicitação"
+        },
+        {
+          "number": 2,
+          "label": "Corrigir cadastro e baixar dados"
+        },
+        {
+          "number": 3,
+          "label": "Trocar senha"
+        },
+        {
+          "number": 4,
+          "label": "Protocolo e resposta"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "22",
+      "title": "Alteração de senha do cliente",
+      "area": "Cliente autenticado",
+      "route": "#/atendimento",
+      "file": "22-alterar-senha.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Senha atual, nova senha e confirmação"
+        }
+      ],
+      "focus": "#customer-password-form"
+    },
+    {
+      "number": "23",
+      "title": "Login administrativo e acessos da loja",
+      "area": "Equipe",
+      "route": "#/admin",
+      "file": "23-login-administrativo.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Login da equipe"
+        },
+        {
+          "number": 2,
+          "label": "Página principal e acessos de cliente"
+        },
+        {
+          "number": 3,
+          "label": "Identidade e contatos"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "24",
+      "title": "Acesso protegido ao cadastro da equipe",
+      "area": "Equipe",
+      "route": "#/admin/cadastros",
+      "file": "24-acesso-cadastro-equipe.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Orientação e autenticação administrativa"
+        },
+        {
+          "number": 2,
+          "label": "Acessos públicos"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "25",
+      "title": "Painel — vendas, estoque e perdas",
+      "area": "Administrador",
+      "route": "#/admin",
+      "file": "25-painel-administrativo.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Menu administrativo"
+        },
+        {
+          "number": 2,
+          "label": "Indicadores e perdas por vencimento"
+        },
+        {
+          "number": 3,
+          "label": "Evolução das vendas"
+        },
+        {
+          "number": 4,
+          "label": "Atenção ao estoque"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "26",
+      "title": "Produtos e estoque",
+      "area": "Administrador",
+      "route": "Menu: Produtos & estoque",
+      "file": "26-produtos-estoque.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Menu administrativo"
+        },
+        {
+          "number": 2,
+          "label": "PDF, CSV e novo produto"
+        },
+        {
+          "number": 3,
+          "label": "Alertas de validade"
+        },
+        {
+          "number": 4,
+          "label": "Vender, estoque, editar e excluir"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "27",
+      "title": "Alertas e perdas por vencimento",
+      "area": "Administrador",
+      "route": "Menu: Produtos & estoque",
+      "file": "27-validade-perdas.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Vencidos e próximos do vencimento"
+        },
+        {
+          "number": 2,
+          "label": "Histórico de retiradas e valores perdidos"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "28",
+      "title": "Histórico de movimentações de estoque",
+      "area": "Administrador",
+      "route": "Menu: Produtos & estoque",
+      "file": "28-movimentacoes-estoque.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Entradas, saídas, vendas e reservas"
+        }
+      ],
+      "focus": ".stock-history:last-child"
+    },
+    {
+      "number": "29",
+      "title": "Cadastro de novo produto",
+      "area": "Administrador",
+      "route": "Produtos > Novo produto",
+      "file": "29-novo-produto.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Formulário aberto"
+        },
+        {
+          "number": 2,
+          "label": "Cancelar ou salvar"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "30",
+      "title": "Edição do produto",
+      "area": "Administrador",
+      "route": "Produtos > Editar",
+      "file": "30-editar-produto.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Formulário aberto"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "31",
+      "title": "Entrada, saída e ajuste de estoque",
+      "area": "Administrador",
+      "route": "Produtos > Estoque",
+      "file": "31-movimentar-estoque.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Produto e saldo atual"
+        },
+        {
+          "number": 2,
+          "label": "Operação, quantidade e motivo"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "32",
+      "title": "Venda direta a partir do produto",
+      "area": "Administrador",
+      "route": "Produtos > Vender",
+      "file": "32-vender-produto.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1167
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Formulário aberto"
+        },
+        {
+          "number": 2,
+          "label": "Pagamento e instruções"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "33",
+      "title": "Administração de clientes",
+      "area": "Administrador",
+      "route": "Menu: Clientes & equipe > Clientes",
+      "file": "33-clientes.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Clientes, equipe e aniversários"
+        },
+        {
+          "number": 2,
+          "label": "Pedidos, clientes e equipe"
+        },
+        {
+          "number": 3,
+          "label": "Cadastros e ações"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "34",
+      "title": "Novo cadastro — cliente",
+      "area": "Administrador",
+      "route": "Clientes & equipe > Novo cadastro",
+      "file": "34-novo-cadastro-cliente.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1579
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Formulário aberto"
+        },
+        {
+          "number": 2,
+          "label": "Permissões do perfil cliente"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "35",
+      "title": "Novo cadastro — funcionário",
+      "area": "Administrador",
+      "route": "Clientes & equipe > Novo cadastro > Funcionário",
+      "file": "35-novo-cadastro-funcionario.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1596
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Formulário aberto"
+        },
+        {
+          "number": 2,
+          "label": "Permissões do funcionário"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "36",
+      "title": "Novo cadastro — administrador",
+      "area": "Administrador",
+      "route": "Clientes & equipe > Novo cadastro > Administrador",
+      "file": "36-novo-cadastro-administrador.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1579
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Formulário aberto"
+        },
+        {
+          "number": 2,
+          "label": "Permissões do administrador"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "37",
+      "title": "Edição de cadastro e preferências",
+      "area": "Administrador",
+      "route": "Clientes & equipe > Editar",
+      "file": "37-editar-cliente.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1579
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Formulário aberto"
+        },
+        {
+          "number": 2,
+          "label": "Foto de perfil"
+        },
+        {
+          "number": 3,
+          "label": "Permissões de acesso"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "38",
+      "title": "Lista da equipe administrativa",
+      "area": "Administrador",
+      "route": "Clientes & equipe > Equipe",
+      "file": "38-equipe.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Áreas de gestão"
+        },
+        {
+          "number": 2,
+          "label": "Administradores e funcionários"
+        },
+        {
+          "number": 3,
+          "label": "Menu administrativo"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "39",
+      "title": "Registro de vendas, pagamento e referência fiscal",
+      "area": "Administrador",
+      "route": "Clientes & equipe > Pedidos e vendas",
+      "file": "39-vendas-registro-fiscal.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Produto, cliente e pagamento"
+        },
+        {
+          "number": 2,
+          "label": "Referência fiscal opcional"
+        },
+        {
+          "number": 3,
+          "label": "Histórico de vendas"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "40",
+      "title": "Configuração das formas de pagamento",
+      "area": "Administrador",
+      "route": "Menu: Formas de pagamento",
+      "file": "40-formas-pagamento.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Menu administrativo"
+        },
+        {
+          "number": 2,
+          "label": "Métodos, disponibilidade e parcelas"
+        },
+        {
+          "number": 3,
+          "label": "Orientação de recebimento"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "41",
+      "title": "Identificação, entrega e habilitação da loja",
+      "area": "Administrador",
+      "route": "Menu: Loja online",
+      "file": "41-configuracao-loja.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Menu administrativo"
+        },
+        {
+          "number": 2,
+          "label": "Fornecedor, contato, prazos e frete"
+        },
+        {
+          "number": 3,
+          "label": "Informações dos produtos"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "42",
+      "title": "Descrição, composição, cuidados e regularização",
+      "area": "Administrador",
+      "route": "Loja online > Informações dos produtos",
+      "file": "42-informacoes-produto.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Dados públicos do produto"
+        }
+      ],
+      "focus": ".commerce-page > form:nth-of-type(2)"
+    },
+    {
+      "number": "43",
+      "title": "Lista de pedidos online da loja",
+      "area": "Administrador",
+      "route": "#/admin/pedidos",
+      "file": "43-pedidos-online-admin.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Menu administrativo"
+        },
+        {
+          "number": 2,
+          "label": "Atualizar e liberar reservas expiradas"
+        },
+        {
+          "number": 3,
+          "label": "Pedido, situação e valor"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "44",
+      "title": "Gestão do pedido online",
+      "area": "Administrador",
+      "route": "#/admin/pedidos/2",
+      "file": "44-pedido-online-admin.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Compra, entrega e fornecedor"
+        },
+        {
+          "number": 2,
+          "label": "Histórico e atualização da situação"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "45",
+      "title": "Gestão de atendimento e privacidade",
+      "area": "Administrador",
+      "route": "Menu: Atendimento",
+      "file": "45-atendimento-admin.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Menu administrativo"
+        },
+        {
+          "number": 2,
+          "label": "Protocolo, cliente, assunto e prazo"
+        },
+        {
+          "number": 3,
+          "label": "Resposta ao cliente"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "46",
+      "title": "Painel com perfil de funcionário",
+      "area": "Funcionário",
+      "route": "#/admin",
+      "file": "46-painel-funcionario.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Menu administrativo"
+        },
+        {
+          "number": 2,
+          "label": "Indicadores disponíveis à equipe"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "47",
+      "title": "Produtos com permissões de funcionário",
+      "area": "Funcionário",
+      "route": "Menu: Produtos & estoque",
+      "file": "47-produtos-funcionario.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1080
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Menu administrativo"
+        },
+        {
+          "number": 2,
+          "label": "Ações permitidas sem exclusão"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "48",
+      "title": "Loja no celular",
+      "area": "Celular — 390 px",
+      "route": "#/loja",
+      "file": "48-mobile-loja.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Navegação da loja"
+        },
+        {
+          "number": 2,
+          "label": "Apresentação e acessos"
+        },
+        {
+          "number": 3,
+          "label": "Catálogo responsivo"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "49",
+      "title": "Checkout no celular",
+      "area": "Celular — 390 px",
+      "route": "#/checkout",
+      "file": "49-mobile-checkout.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Recebimento e pagamento"
+        },
+        {
+          "number": 2,
+          "label": "Resumo e confirmação"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "50",
+      "title": "Pedido do cliente no celular",
+      "area": "Celular — 390 px",
+      "route": "#/pedidos/1",
+      "file": "50-mobile-pedido.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Conteúdo desta área"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "51",
+      "title": "Atendimento no celular",
+      "area": "Celular — 390 px",
+      "route": "#/atendimento",
+      "file": "51-mobile-atendimento.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Solicitação e cadastro"
+        },
+        {
+          "number": 2,
+          "label": "Troca de senha"
+        }
+      ],
+      "focus": null
+    },
+    {
+      "number": "52",
+      "title": "Administração no celular",
+      "area": "Celular — 390 px",
+      "route": "#/admin",
+      "file": "52-mobile-painel.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "parts": [
+        {
+          "number": 1,
+          "label": "Menu administrativo"
+        },
+        {
+          "number": 2,
+          "label": "Indicadores responsivos"
+        }
+      ],
+      "focus": null
+    }
+  ]
+}

@@ -4,6 +4,14 @@ Loja online, pedidos, atendimento, vendas e estoque com React, API Node.js e ban
 
 Este documento reúne as funcionalidades e correções implementadas até agora. **A execução local foi validada; o banco Turso ainda precisa ser criado e conectado à Vercel para permitir gravações permanentes no site publicado.**
 
+## Documentação visual
+
+As **52 capturas identificadas** cobrem loja, cadastro/login, checkout, pedidos, políticas, administração, estoque, vendas, atendimento, permissões e versões para celular. Abra a [galeria de telas](docs/capturas/index.html), o [guia completo em PDF](docs/capturas/guia-das-telas.pdf) ou a [lista técnica das capturas](docs/capturas/manifesto.json).
+
+As imagens têm títulos, numeração e marcações das partes de cada tela. Foram geradas com dados fictícios em banco temporário, sem abrir ou modificar o banco operacional. Veja [como gerar novamente](docs/capturas/README.md).
+
+Para visualizar a galeria no navegador, execute `node scripts/view-captures.mjs` e abra **http://localhost:3002**. Esse servidor disponibiliza somente a documentação visual no computador local.
+
 ## Funcionalidades
 
 - Vitrine pública com entrada própria para clientes, cadastro e login separados da equipe.
