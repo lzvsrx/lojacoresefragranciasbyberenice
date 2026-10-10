@@ -184,7 +184,7 @@ O servidor usa exclusivamente `server/data/store.db` (ou o caminho definido em `
 
 Execute `npm start` para usar o projeto compilado ou `npm run dev` para desenvolvimento. Cadastros, pedidos, vendas e estoque são gravados no arquivo SQLite local.
 
-Na Vercel, o arquivo em `/tmp` é temporário. A aplicação permite consulta e login, mas mantém o bloqueio de gravações para evitar perda de cadastros e vendas. Para operar com SQLite em produção, hospede o servidor em um ambiente com disco persistente. Publicar no GitHub não transfere o banco operacional.
+Na Vercel, o SQLite em `/tmp` permite cadastros, vendas e alterações, conforme solicitado, mas é temporário. Reinicializações, novas instâncias e novas publicações podem perder alterações ou apresentar bancos diferentes. Não há sincronização com o banco do computador. A API informa `writable: true` e `persistent: false`; o aviso não aparece na interface. Cada instância nova começa pela base pública de exemplo. Para preservar os dados em produção, o servidor precisa de disco persistente. Publicar no GitHub não transfere o banco operacional.
 
 ## Validade e ordem dos produtos
 

@@ -370,12 +370,6 @@ function Shell({ user, setUser }) {
   }, []);
   const [loadError, setLoadError] = useState("");
   const [revision, setRevision] = useState(0);
-  const [storageWarning, setStorageWarning] = useState(false);
-  useEffect(() => {
-    api("/storage-status")
-      .then((status) => setStorageWarning(!status.writable))
-      .catch(reportLoadError);
-  }, []);
   useEffect(() => {
     const report = (event) => setLoadError(event.detail);
     window.addEventListener("load-error", report);
@@ -438,12 +432,6 @@ function Shell({ user, setUser }) {
       </aside>
       <section className="content">
         <Header page={labels[page]} user={user} setUser={setUser} />
-        {storageWarning && (
-          <div className="storage-notice" role="note">
-            Modo de consulta na Vercel. Para cadastrar, vender e atualizar o
-            estoque, abra o sistema local conectado ao banco da loja.
-          </div>
-        )}
         {loadError && (
           <div className="load-error" role="alert">
             {loadError}{" "}

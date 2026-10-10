@@ -7,7 +7,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
-test("Vercel without persistent storage allows reading and login but refuses writes", async (t) => {
+test("Vercel temporary SQLite allows writes and reports non-persistent storage", async (t) => {
   const folder = mkdtempSync(path.join(tmpdir(), "corese-demo-test-"));
   process.env.NODE_ENV = "test";
   process.env.VERCEL = "1";
@@ -50,7 +50,7 @@ test("Vercel without persistent storage allows reading and login but refuses wri
   });
   const base = `http://127.0.0.1:${server.address().port}/api`;
   const status = await fetch(base + "/storage-status");
-  assert.equal((await status.json()).writable, false);
+  assert.deepEqual(await status.json(), { writable: true, persistent: false });
   const login = await fetch(base + "/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -69,10 +69,18 @@ test("Vercel without persistent storage allows reading and login but refuses wri
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     },
-    body: "{}",
+    body: JSON.stringify({ name: "Temporary product", price: 20, quantity: 3 }),
   });
-  assert.equal(write.status, 503);
-  assert.match((await write.json()).error, /persistente/);
+  assert.equal(write.status, 201);
+  const created = await write.json();
+  assert.equal(
+    (
+      await database
+        .prepare("SELECT quantity FROM products WHERE id=?")
+        .get(created.id)
+    ).quantity,
+    3,
+  );
   const customerLogin = await fetch(base + "/customer/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -83,9 +91,14 @@ test("Vercel without persistent storage allows reading and login but refuses wri
   const registration = await fetch(base + "/customer/register", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify({
+      name: "New Customer",
+      username: "newcustomer",
+      password: "Cliente123!",
+      email: "new@example.com",
+    }),
   });
-  assert.equal(registration.status, 503);
+  assert.equal(registration.status, 201);
   await registration.json();
   const catalog = await fetch(base + "/catalog");
   assert.equal(catalog.status, 200);

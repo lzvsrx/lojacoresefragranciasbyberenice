@@ -267,21 +267,9 @@ app.use("/api", (_req, res, next) => {
 app.get("/api/storage-status", (_req, res) =>
   res.json({
     persistent: !isVercel,
-    writable: !isVercel,
+    writable: true,
   }),
 );
-app.use("/api", (req, res, next) => {
-  if (
-    isVercel &&
-    !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-    !["/login", "/customer/login"].includes(req.path)
-  )
-    return res.status(503).json({
-      error:
-        "Cadastros e vendas indisponíveis na Vercel: hospede o servidor SQLite com disco persistente para preservar os dados",
-    });
-  next();
-});
 app.use("/api", createApiLimiter());
 app.use("/assets", express.static(path.join(root, "client/public/assets")));
 const safeUser = (u) =>
