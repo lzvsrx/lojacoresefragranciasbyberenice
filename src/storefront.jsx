@@ -754,7 +754,7 @@ export default function Storefront({ api, route }) {
                   className="store-customer-access"
                   aria-label="Acesso do cliente"
                 >
-                  <small>Seu espaço de cliente</small>
+                  <small>Cliente · compre e acompanhe sua conta</small>
                   {user ? (
                     <a className="button" href="#/cliente">
                       <UserRound size={17} /> Minha conta
@@ -769,6 +769,22 @@ export default function Storefront({ api, route }) {
                       </a>
                     </>
                   )}
+                </div>
+                <div
+                  className="store-customer-access"
+                  aria-label="Acesso administrativo"
+                >
+                  <small>Equipe administrativa · gestão da loja</small>
+                  <a className="button primary" href="#/admin">
+                    <UserRound size={17} /> Login administrativo
+                  </a>
+                  <a className="button" href="#/admin/cadastros">
+                    Cadastro da equipe <ArrowRight size={17} />
+                  </a>
+                  <p className="store-access-note">
+                    O cadastro da equipe é feito por um administrador após
+                    entrar no sistema.
+                  </p>
                 </div>
               </div>
               <div className="store-hero-image">

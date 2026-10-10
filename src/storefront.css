@@ -162,6 +162,13 @@
 .store-customer-access .button {
   font-size: 12px;
 }
+.store-customer-access .store-access-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #806550;
+}
 .store-hero-image img {
   width: 100%;
   height: 290px;

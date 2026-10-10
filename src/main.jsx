@@ -226,6 +226,12 @@ function Login({ onLogin }) {
         <p className="muted">
           Entre para cuidar das vendas e do estoque da loja.
         </p>
+        {location.hash.startsWith("#/admin/cadastros") && (
+          <p className="muted">
+            Entre com uma conta de administrador para cadastrar integrantes da
+            equipe.
+          </p>
+        )}
         <form onSubmit={submit}>
           <label>
             Usuário
@@ -334,7 +340,9 @@ function Shell({ user, setUser }) {
     payments: "Formas de pagamento",
     catalog: "Catálogo",
   };
-  const [page, setPage] = useState(allowed[0]);
+  const [page, setPage] = useState(
+    location.hash.startsWith("#/admin/cadastros") ? "users" : allowed[0],
+  );
   const [loadError, setLoadError] = useState("");
   const [revision, setRevision] = useState(0);
   const [storageWarning, setStorageWarning] = useState(false);
@@ -1972,7 +1980,9 @@ function Users({ canManage }) {
   const [users, setUsers] = useState([]),
     [edit, setEdit] = useState(),
     [show, setShow] = useState(false),
-    [tab, setTab] = useState("clients"),
+    [tab, setTab] = useState(
+      location.hash.startsWith("#/admin/cadastros") ? "team" : "clients",
+    ),
     [query, setQuery] = useState("");
   const load = () => api("/users").then((items) => setUsers(items));
   useEffect(() => {
