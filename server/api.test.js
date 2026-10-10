@@ -162,6 +162,14 @@ test("API regression suite uses an isolated database", async (t) => {
       assert.equal(created.status, 201);
       assert.equal(created.body.change, 5);
       saleId = created.body.id;
+      const soldProduct = (await request("/products")).body.find(
+        (p) => p.id === id,
+      );
+      assert.equal(soldProduct.sold_quantity, 2);
+      assert.equal(soldProduct.sold_value, 25);
+      const soldDashboard = (await request("/dashboard")).body;
+      assert.equal(soldDashboard.sold_quantity, 2);
+      assert.equal(soldDashboard.revenue, 25);
       assert.equal(
         db.prepare("SELECT quantity FROM products WHERE id=?").get(id).quantity,
         8,
@@ -182,6 +190,12 @@ test("API regression suite uses an isolated database", async (t) => {
         10,
       );
       assert.equal((await request("/dashboard")).body.revenue, 0);
+      assert.equal((await request("/dashboard")).body.sold_quantity, 0);
+      const cancelledProduct = (await request("/products")).body.find(
+        (p) => p.id === id,
+      );
+      assert.equal(cancelledProduct.sold_quantity, 0);
+      assert.equal(cancelledProduct.sold_value, 0);
     },
   );
 

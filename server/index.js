@@ -500,7 +500,13 @@ app.put(
 app.get("/api/products", auth(), async (req, res) => {
   let rows = await db
     .prepare(
-      "SELECT id,name,brand,style,type,price,quantity,expiration_date,CASE WHEN length(image)>0 THEN 1 ELSE 0 END image FROM products ORDER BY id DESC",
+      `SELECT p.id,p.name,p.brand,p.style,p.type,p.price,p.quantity,p.expiration_date,
+        CASE WHEN length(p.image)>0 THEN 1 ELSE 0 END image,
+        COALESCE(s.sold_quantity,0) sold_quantity,COALESCE(s.sold_value,0) sold_value
+        FROM products p LEFT JOIN (
+          SELECT product_id,SUM(quantity) sold_quantity,SUM(total_value) sold_value
+          FROM sales WHERE COALESCE(order_status,'')<>'Cancelado' GROUP BY product_id
+        ) s ON s.product_id=p.id ORDER BY p.id DESC`,
     )
     .all();
   const q = clean(req.query.q, 200).toLowerCase();
@@ -1035,7 +1041,7 @@ app.get("/api/dashboard", auth(["admin", "funcionario"]), async (req, res) => {
     .get();
   const sales = await db
     .prepare(
-      "SELECT COUNT(*) sales_count,COALESCE(SUM(total_value),0) revenue FROM sales WHERE COALESCE(order_status,'')<>'Cancelado'",
+      "SELECT COUNT(*) sales_count,COALESCE(SUM(quantity),0) sold_quantity,COALESCE(SUM(total_value),0) revenue FROM sales WHERE COALESCE(order_status,'')<>'Cancelado'",
     )
     .get();
   const low = await db

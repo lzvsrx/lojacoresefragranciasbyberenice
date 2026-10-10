@@ -6,6 +6,8 @@ Este documento reúne as funcionalidades e correções implementadas até agora.
 
 ## Funcionalidades
 
+Na tela **Produtos**, o botão **Vender** abre o formulário com o item selecionado, permitindo informar quantidade, cliente e pagamento. Ao confirmar, o estoque é baixado e a coluna **Vendido** atualiza a quantidade e o valor acumulados daquele produto. O painel também mostra as unidades vendidas e o faturamento. Vendas canceladas são desconsideradas; produtos sem estoque têm o botão desativado.
+
 - Login com permissões para administrador, funcionário e cliente.
 - Painel de faturamento, vendas, estoque baixo, aniversariantes e validade.
 - Cadastro, edição, pesquisa e imagens de produtos.

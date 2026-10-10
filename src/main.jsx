@@ -529,7 +529,7 @@ function Dashboard() {
         <Stat
           label="Vendas registradas"
           value={d.sales_count}
-          detail="Histórico completo"
+          detail={`${d.sold_quantity} unidades vendidas · sem cancelamentos`}
         />
         <Stat
           label="Faturamento"
@@ -836,6 +836,7 @@ function Modal({ title, onClose, children }) {
 }
 function Products({ canDelete }) {
   const today = useStoreToday();
+  const [saleProduct, setSaleProduct] = useState(null);
   const [losses, setLosses] = useState({ items: [], total_cents: 0 });
   const [removingExpired, setRemovingExpired] = useState(false);
   const [products, setProducts] = useState([]),
@@ -1034,6 +1035,7 @@ function Products({ canDelete }) {
               <th>Categoria</th>
               <th>Preço</th>
               <th>Estoque</th>
+              <th>Vendido</th>
               <th>Validade</th>
               <th></th>
             </tr>
@@ -1071,10 +1073,21 @@ function Products({ canDelete }) {
                   </span>
                 </td>
                 <td>
+                  <b>{p.sold_quantity} un.</b>
+                  <small className="block">{money(p.sold_value)}</small>
+                </td>
+                <td>
                   {date(p.expiration_date)}
                   <ExpirationBadge value={p.expiration_date} today={today} />
                 </td>
                 <td className="row-actions">
+                  <button
+                    className="primary"
+                    disabled={p.quantity <= 0}
+                    onClick={() => setSaleProduct(p)}
+                  >
+                    <ShoppingCart size={15} /> Vender
+                  </button>
                   {p.quantity > 0 &&
                     expirationStatus(p.expiration_date, today)?.status ===
                       "expired" && (
@@ -1169,6 +1182,16 @@ function Products({ canDelete }) {
           }}
         />
       )}
+      {saleProduct && (
+        <ProductSale
+          product={saleProduct}
+          onClose={() => setSaleProduct(null)}
+          onSaved={async () => {
+            setSaleProduct(null);
+            await load().catch(reportLoadError);
+          }}
+        />
+      )}
       {stockProduct && (
         <StockForm
           product={stockProduct}
@@ -1195,11 +1218,45 @@ const blankUser = {
   preferred_brand: "",
   preferred_style: "",
 };
-function CustomerOrders({ users, canManage }) {
+function ProductSale({ product, onClose, onSaved }) {
+  const [users, setUsers] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    api("/users").then(setUsers).catch(reportLoadError);
+  }, []);
+  return (
+    <Modal
+      title={`Vender: ${product.name}`}
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+    >
+      {users ? (
+        <CustomerOrders
+          users={users}
+          initialProductId={product.id}
+          onSaved={onSaved}
+          onBusyChange={setBusy}
+        />
+      ) : (
+        <Loading />
+      )}
+    </Modal>
+  );
+}
+function CustomerOrders({
+  users,
+  canManage,
+  initialProductId,
+  onSaved,
+  onBusyChange,
+}) {
   const [products, setProducts] = useState([]),
     [sales, setSales] = useState([]),
     [methods, setMethods] = useState([]),
-    [productId, setProductId] = useState(""),
+    [productId, setProductId] = useState(
+      initialProductId ? String(initialProductId) : "",
+    ),
     [customerId, setCustomerId] = useState(""),
     [quantity, setQuantity] = useState(1),
     [methodId, setMethodId] = useState(""),
@@ -1216,13 +1273,20 @@ function CustomerOrders({ users, canManage }) {
       api("/sales"),
       api("/payment-methods"),
     ]).then(([p, s, m]) => {
-      setProducts(p.filter((x) => x.quantity > 0));
+      setProducts(
+        p.filter(
+          (x) =>
+            x.quantity > 0 && (!initialProductId || x.id === initialProductId),
+        ),
+      );
       setSales(s);
       setMethods(m.filter((x) => x.active));
       setProductId((current) =>
         p.some((x) => String(x.id) === current && x.quantity > 0)
           ? current
-          : String(p.find((x) => x.quantity > 0)?.id || ""),
+          : initialProductId
+            ? ""
+            : String(p.find((x) => x.quantity > 0)?.id || ""),
       );
       setMethodId((current) =>
         m.some((x) => String(x.id) === current && x.active)
@@ -1272,6 +1336,7 @@ function CustomerOrders({ users, canManage }) {
     e.preventDefault();
     if (saving) return;
     setSaving(true);
+    onBusyChange?.(true);
     try {
       const result = await api("/sales", {
         method: "POST",
@@ -1291,6 +1356,10 @@ function CustomerOrders({ users, canManage }) {
       alert(
         `Pedido ${result.order_number} registrado. Total: ${money(result.total)}${result.change ? ` · Troco: ${money(result.change)}` : ""}`,
       );
+      if (onSaved) {
+        await onSaved();
+        return;
+      }
       setQuantity(1);
       setReference("");
       setReceived("");
@@ -1302,6 +1371,7 @@ function CustomerOrders({ users, canManage }) {
       alert(e.message);
     } finally {
       setSaving(false);
+      onBusyChange?.(false);
     }
   };
   const clients = users.filter((x) => x.role === "cliente"),
@@ -1309,12 +1379,18 @@ function CustomerOrders({ users, canManage }) {
       ? `Olá${client?.name ? ` ${client.name}` : ""}! Seu pedido na Cores & Fragrâncias by Berenice: ${quantity}x ${product.name}, total ${money(total)}, pagamento por ${method?.name || "a combinar"}. Retirada em ${STORE_ADDRESS}.`
       : "";
   return (
-    <div className="orders-layout">
+    <div className={initialProductId ? "product-sale" : "orders-layout"}>
       <Card
         title="Novo pedido e venda"
         subtitle="Pagamento identificado e estoque transacional"
       >
         <form className="order-form" onSubmit={submit}>
+          {initialProductId && !product && (
+            <p role="status">
+              Carregando disponibilidade. Se o produto estiver sem estoque,
+              feche a venda e atualize a lista.
+            </p>
+          )}
           <label>
             Cliente
             <select
@@ -1488,47 +1564,49 @@ function CustomerOrders({ users, canManage }) {
           </div>
         </form>
       </Card>
-      <Card
-        title="Pedidos e vendas"
-        subtitle={`${sales.length} registros`}
-        action={
-          <button onClick={exportSales}>
-            <Download size={16} /> Exportar vendas
-          </button>
-        }
-      >
-        <div className="sale-list orders-list">
-          {sales.slice(0, 20).map((s) => (
-            <div key={s.id}>
-              <span>
-                <b>
-                  {s.order_number || `Venda #${s.id}`} ·{" "}
-                  {s.product_name || "Produto"}
-                </b>
-                <small>
-                  {s.customer_name || "Consumidor não identificado"} ·{" "}
-                  {s.quantity} un.
-                </small>
-                <small>
-                  {s.payment_code ? `${s.payment_code} — ` : ""}
-                  {s.payment_method || "Forma não informada"}
-                  {s.installments > 1 ? ` · ${s.installments}x` : ""} ·{" "}
-                  {s.order_status || "Concluído"} · {date(s.sale_date)}
-                </small>
-                {s.transaction_reference && (
-                  <small>Referência: {s.transaction_reference}</small>
+      {!initialProductId && (
+        <Card
+          title="Pedidos e vendas"
+          subtitle={`${sales.length} registros`}
+          action={
+            <button onClick={exportSales}>
+              <Download size={16} /> Exportar vendas
+            </button>
+          }
+        >
+          <div className="sale-list orders-list">
+            {sales.slice(0, 20).map((s) => (
+              <div key={s.id}>
+                <span>
+                  <b>
+                    {s.order_number || `Venda #${s.id}`} ·{" "}
+                    {s.product_name || "Produto"}
+                  </b>
+                  <small>
+                    {s.customer_name || "Consumidor não identificado"} ·{" "}
+                    {s.quantity} un.
+                  </small>
+                  <small>
+                    {s.payment_code ? `${s.payment_code} — ` : ""}
+                    {s.payment_method || "Forma não informada"}
+                    {s.installments > 1 ? ` · ${s.installments}x` : ""} ·{" "}
+                    {s.order_status || "Concluído"} · {date(s.sale_date)}
+                  </small>
+                  {s.transaction_reference && (
+                    <small>Referência: {s.transaction_reference}</small>
+                  )}
+                </span>
+                <strong>{money(s.total_value)}</strong>
+                {canManage && s.order_status !== "Cancelado" && (
+                  <button className="delete" onClick={() => cancelSale(s)}>
+                    <Trash2 size={15} /> Cancelar
+                  </button>
                 )}
-              </span>
-              <strong>{money(s.total_value)}</strong>
-              {canManage && s.order_status !== "Cancelado" && (
-                <button className="delete" onClick={() => cancelSale(s)}>
-                  <Trash2 size={15} /> Cancelar
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </Card>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
