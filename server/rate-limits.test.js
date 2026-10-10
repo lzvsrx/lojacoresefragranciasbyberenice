@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import express from "express";
-import { createApiLimiter, createLoginLimiter } from "./rate-limits.js";
+import {
+  createApiLimiter,
+  createLoginLimiter,
+  createRegistrationLimiter,
+} from "./rate-limits.js";
 
 async function fixture(t) {
   const app = express();
@@ -36,6 +40,26 @@ async function fixture(t) {
     },
   };
 }
+
+test("public registration limits attempts per IP", async (t) => {
+  const app = express();
+  app.post("/register", createRegistrationLimiter(), (_req, res) =>
+    res.status(201).json({}),
+  );
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  const url = `http://127.0.0.1:${server.address().port}/register`;
+  for (let i = 0; i < 10; i++) {
+    const response = await fetch(url, { method: "POST" });
+    assert.equal(response.status, 201);
+    await response.json();
+  }
+  const blocked = await fetch(url, { method: "POST" });
+  assert.equal(blocked.status, 429);
+  assert.ok(Number(blocked.headers.get("retry-after")) > 0);
+  await blocked.json();
+});
 
 test("failed logins block only the same normalized username and IP", async (t) => {
   const api = await fixture(t);

@@ -6,6 +6,10 @@ Este documento reúne as funcionalidades e correções implementadas até agora.
 
 ## Funcionalidades
 
+- Vitrine pública com entrada própria para clientes, cadastro e login separados da equipe.
+- Busca sem distinção de acentos, filtros de marca, categoria e preço e ordenação por novidades, nome ou valor.
+- Sacola com conferência de preços e estoque no servidor antes de preparar o pedido pelo WhatsApp.
+
 Na tela **Produtos**, o botão **Vender** abre o formulário com o item selecionado, permitindo informar quantidade, cliente e pagamento. Ao confirmar, o estoque é baixado e a coluna **Vendido** atualiza a quantidade e o valor acumulados daquele produto. O painel também mostra as unidades vendidas e o faturamento. Vendas canceladas são desconsideradas; produtos sem estoque têm o botão desativado.
 
 - Login com permissões para administrador, funcionário e cliente.
@@ -52,6 +56,30 @@ Abra **http://localhost:3001**. Mantenha o servidor ligado: abrir `dist/index.ht
 No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd` nos mesmos comandos, como `npm.cmd run dev`.
 
 ### Acesso inicial
+
+A entrada padrão agora é a loja. Use os acessos separados:
+
+| Área                   | Produção local                              | Desenvolvimento                             |
+| ---------------------- | ------------------------------------------- | ------------------------------------------- |
+| Vitrine pública        | `http://localhost:3001/#/loja`              | `http://localhost:5173/#/loja`              |
+| Login de cliente       | `http://localhost:3001/#/cliente/entrar`    | `http://localhost:5173/#/cliente/entrar`    |
+| Cadastro de cliente    | `http://localhost:3001/#/cliente/cadastrar` | `http://localhost:5173/#/cliente/cadastrar` |
+| Sacola                 | `http://localhost:3001/#/sacola`            | `http://localhost:5173/#/sacola`            |
+| Administração / equipe | `http://localhost:3001/#/admin`             | `http://localhost:5173/#/admin`             |
+
+Clientes navegam sem login. O cadastro exige nome, e-mail, usuário e senha forte; telefone é opcional. Não há confirmação automática de e-mail nem recuperação de senha por e-mail implementada; o acesso tem um link para pedir ajuda à loja. O servidor sempre cria o perfil `cliente`, mesmo que alguém tente enviar outro perfil. Clientes não acessam produtos administrativos, usuários, estoque, vendas ou configurações.
+
+As sessões de equipe e cliente ficam separadas. Sair da conta de cliente não encerra a sessão administrativa. O cadastro público tem limite de 10 tentativas por IP por hora; o login mantém sua proteção contra falhas.
+
+### Catálogo e pedido do cliente
+
+Fotos de usuários exigem autenticação: clientes só consultam a própria foto; a equipe consulta fotos conforme suas permissões. Na administração, a lista começa com 40 produtos e permite carregar mais, mantendo a busca sobre toda a lista e carregando imagens sob demanda.
+
+O catálogo entrega 24 produtos por página (máximo de 48 por chamada), carrega imagens sob demanda e aguarda 250 ms após alterações de busca antes de consultar a API, cancelando consultas anteriores. Metadados públicos têm cache interno de até 15 segundos, invalidado por gravações de produtos, vendas e estoque na mesma instância. A vitrine consulta novamente a cada minuto enquanto está visível e ao retornar à aba. A conferência da sacola consulta o banco diretamente, sem usar esse cache.
+
+A sacola é guardada neste navegador, aceita até 40 produtos diferentes e não reserva estoque. Depois do login, **Conferir valores e disponibilidade** consulta preços atuais e valida quantidades. **Enviar pedido pelo WhatsApp** abre a mensagem para o cliente enviar: não registra uma venda nem confirma pagamento automaticamente. A equipe confirma as condições e registra a venda no painel. Frete e pagamento são combinados no atendimento.
+
+Produtos vencidos são excluídos da vitrine e recusados na conferência da sacola e no registro de novas vendas. Esgotados ficam ocultos por padrão, com filtro para visualização. Produtos próximos do vencimento mostram sua validade.
 
 O banco de exemplo usa usuário `admin` e senha `admin123`. Troque a senha antes de disponibilizar a loja. Um banco operacional existente mantém seus próprios usuários e senhas. Os campos de login não vêm preenchidos na interface.
 
@@ -182,7 +210,7 @@ Exportações de produtos e vendas protegem células que poderiam ser interpreta
 
 ## Validações realizadas
 
-A suíte local passou com **19 testes**, cobrindo autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração e bloqueio de gravações na Vercel sem banco persistente.
+A suíte local passou com **22 testes**, cobrindo autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração, busca sem acentos, catálogo público, cadastro seguro de clientes, separação de permissões, conferência de sacola e bloqueio de gravações na Vercel sem banco persistente.
 
 Também foram verificados a compilação, os fluxos principais em navegador e o comportamento responsivo. A auditoria de dependências não apontou vulnerabilidades na verificação realizada; reavalie esse resultado ao atualizar o projeto.
 
@@ -200,6 +228,9 @@ O workflow `.github/workflows/ci.yml` está configurado para instalação, teste
 
 ```text
 src/                     Interface React, estilos e regras de validade
+src/storefront.jsx       Vitrine, cadastro, login e sacola de clientes
+src/storefront.css       Estilos da área pública
+src/search.js            Busca compartilhada sem distinção de acentos
 server/index.js          API, autenticação e regras do sistema
 server/database.js       Adaptador SQLite local / libSQL remoto
 server/validation.js     Validação de entradas

@@ -27,6 +27,8 @@ import {
 import "./styles.css";
 import { expirationStatus, storeToday } from "./expiration.js";
 import { paymentGuidance } from "./payment-guidance.js";
+import { matchesProduct } from "./search.js";
+const Storefront = React.lazy(() => import("./storefront.jsx"));
 
 function useStoreToday() {
   const [today, setToday] = useState(() => storeToday());
@@ -124,7 +126,9 @@ const api = async (path, opts = {}) => {
       if (value instanceof File && value.size > 4 * 1024 * 1024)
         throw new Error("Arquivo excede o limite de 4 MB");
   }
-  const token = localStorage.getItem("token");
+  const session = opts.session || "admin";
+  const tokenKey = session === "customer" ? "customerToken" : "token";
+  const token = session === "public" ? null : localStorage.getItem(tokenKey);
   const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   if (!(opts.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
@@ -133,18 +137,28 @@ const api = async (path, opts = {}) => {
   }
   let r;
   try {
+    const { session: _session, ...requestOptions } = opts;
     r = await fetch(API + path, {
-      ...opts,
+      ...requestOptions,
       headers: { ...headers, ...opts.headers },
     });
-  } catch {
+  } catch (error) {
+    if (error.name === "AbortError") throw error;
     throw new Error(
       "Servidor indisponível. Verifique a conexão e tente novamente.",
     );
   }
-  if (r.status === 401 && path != "/login") {
-    localStorage.removeItem("token");
-    window.dispatchEvent(new Event("auth-expired"));
+  if (
+    r.status === 401 &&
+    !["/login", "/customer/login"].includes(path) &&
+    session !== "public"
+  ) {
+    localStorage.removeItem(tokenKey);
+    window.dispatchEvent(
+      new Event(
+        session === "customer" ? "customer-auth-expired" : "auth-expired",
+      ),
+    );
   }
   if (!r.ok) {
     let e;
@@ -158,6 +172,29 @@ const api = async (path, opts = {}) => {
   return r.headers.get("content-type")?.includes("json") ? r.json() : r.blob();
 };
 
+function UserImage({ user, className }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    let url;
+    const controller = new AbortController();
+    api(`/users/${user.id}/image`, { signal: controller.signal })
+      .then((blob) => {
+        if (controller.signal.aborted) return;
+        url = URL.createObjectURL(blob);
+        setSrc(url);
+      })
+      .catch(() => {});
+    return () => {
+      controller.abort();
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [user]);
+  return src ? (
+    <img className={className} src={src} alt={`Foto de ${user.name}`} />
+  ) : (
+    <div className="avatar">{user.name?.[0]}</div>
+  );
+}
 function Login({ onLogin }) {
   const [form, setForm] = useState({ username: "", password: "" }),
     [error, setError] = useState(""),
@@ -168,7 +205,10 @@ function Login({ onLogin }) {
     setLoading(true);
     setError("");
     try {
-      const x = await api("/login", { method: "POST", body: form });
+      const x = await api("/login", {
+        method: "POST",
+        body: { ...form, portal: "admin" },
+      });
       localStorage.setItem("token", x.token);
       onLogin(x.user);
     } catch (e) {
@@ -182,6 +222,9 @@ function Login({ onLogin }) {
       <section className="login-card">
         <img src="/assets/logo1.jpeg" />
         <p className="eyebrow">GESTÃO & BELEZA</p>
+        <a className="admin-store-link" href="#/loja">
+          ← Voltar à loja · acesso de clientes
+        </a>
         <h1>Cores & Fragrâncias</h1>
         <p className="muted">
           Entre para cuidar das vendas e do estoque da loja.
@@ -269,9 +312,7 @@ function Shell({ user, setUser }) {
   const allowed =
     user.role === "admin"
       ? ["dashboard", "products", "users", "payments"]
-      : user.role === "funcionario"
-        ? ["dashboard", "products", "users"]
-        : ["catalog"];
+      : ["dashboard", "products", "users"];
   const labels = {
     dashboard: "Visão geral",
     products: "Produtos & estoque",
@@ -322,10 +363,17 @@ function Shell({ user, setUser }) {
               </button>
             );
           })}
+          <button
+            onClick={() => {
+              location.hash = "/loja";
+            }}
+          >
+            <ShoppingBag size={19} /> Ver loja
+          </button>
         </nav>
         <div className="profile">
           {user.has_image ? (
-            <img src={`${API}/users/${user.id}/image`} />
+            <UserImage user={user} />
           ) : (
             <div className="avatar">{user.name?.[0]}</div>
           )}
@@ -366,7 +414,6 @@ function Shell({ user, setUser }) {
           )}{" "}
           {page === "users" && <Users canManage={user.role === "admin"} />}{" "}
           {page === "payments" && <PaymentSettings />}{" "}
-          {page === "catalog" && <Catalog user={user} />}
         </React.Fragment>
       </section>
     </div>
@@ -838,6 +885,7 @@ function Modal({ title, onClose, children }) {
 function Products({ canDelete }) {
   const today = useStoreToday();
   const [saleProduct, setSaleProduct] = useState(null);
+  const [visibleLimit, setVisibleLimit] = useState(40);
   const [losses, setLosses] = useState({ items: [], total_cents: 0 });
   const [removingExpired, setRemovingExpired] = useState(false);
   const [products, setProducts] = useState([]),
@@ -859,13 +907,11 @@ function Products({ canDelete }) {
   useEffect(() => {
     void load().catch(reportLoadError);
   }, []);
-  const filtered = products.filter((x) =>
-    [x.name, x.brand, x.type, x.style, x.id].some((v) =>
-      String(v || "")
-        .toLowerCase()
-        .includes(q.toLowerCase()),
-    ),
+  const filtered = useMemo(
+    () => products.filter((x) => matchesProduct(x, q)),
+    [products, q],
   );
+  useEffect(() => setVisibleLimit(40), [q]);
   const expired = products.filter(
     (p) =>
       p.quantity > 0 &&
@@ -1042,12 +1088,17 @@ function Products({ canDelete }) {
             </tr>
           </thead>
           <tbody>
-            {filtered.map((p) => (
+            {filtered.slice(0, visibleLimit).map((p) => (
               <tr key={p.id}>
                 <td>
                   <div className="product-cell">
                     {p.image_url ? (
-                      <img src={p.image_url} />
+                      <img
+                        src={p.image_url}
+                        alt={p.name}
+                        loading="lazy"
+                        decoding="async"
+                      />
                     ) : (
                       <div className="placeholder">◇</div>
                     )}
@@ -1123,6 +1174,14 @@ function Products({ canDelete }) {
         </table>
         {!filtered.length && <Empty />}
       </div>
+      {filtered.length > visibleLimit && (
+        <div className="toolbar">
+          <button onClick={() => setVisibleLimit((current) => current + 40)}>
+            Carregar mais produtos ({Math.min(visibleLimit, filtered.length)} de{" "}
+            {filtered.length})
+          </button>
+        </div>
+      )}
       <details className="stock-history">
         <summary>Histórico de movimentações ({movements.length})</summary>
         <div className="table-wrap">
@@ -2019,10 +2078,7 @@ function Users({ canManage }) {
                     <td>
                       <div className="product-cell">
                         {u.has_image ? (
-                          <img
-                            className="round"
-                            src={`${API}/users/${u.id}/image`}
-                          />
+                          <UserImage user={u} className="round" />
                         ) : (
                           <div className="avatar">{u.name?.[0]}</div>
                         )}
@@ -2135,7 +2191,7 @@ function UserForm({ user, onClose, onSaved }) {
       <form className="form-grid" onSubmit={submit}>
         <div className="profile-upload wide">
           {user?.has_image ? (
-            <img src={`${API}/users/${user.id}/image`} />
+            <UserImage user={user} />
           ) : (
             <div className="avatar">{v.name?.[0] || "?"}</div>
           )}
@@ -2307,98 +2363,7 @@ function UserForm({ user, onClose, onSaved }) {
     </Modal>
   );
 }
-function Catalog() {
-  const today = useStoreToday();
-  const [products, setProducts] = useState([]),
-    [q, setQ] = useState(""),
-    [type, setType] = useState("Todos");
-  useEffect(() => {
-    api("/products")
-      .then((items) => setProducts(items))
-      .catch(reportLoadError);
-  }, []);
-  const types = [
-    "Todos",
-    ...new Set(products.map((x) => x.type).filter(Boolean)),
-  ];
-  const list = products.filter(
-    (x) =>
-      (type === "Todos" || x.type === type) &&
-      [x.name, x.brand, x.style].some((v) =>
-        String(v || "")
-          .toLowerCase()
-          .includes(q.toLowerCase()),
-      ),
-  );
-  return (
-    <>
-      <div className="catalog-hero">
-        <span>BELEZA QUE ENCANTA</span>
-        <h1>Encontre o seu próximo favorito.</h1>
-        <p>Explore fragrâncias, maquiagem e cuidados escolhidos para você.</p>
-        <div className="catalog-contact">
-          WhatsApp {STORE_PHONE} · {STORE_ADDRESS}
-        </div>
-      </div>
-      <div className="catalog-tools">
-        <input
-          className="search"
-          placeholder="O que você procura?"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <div>
-          {types.map((x) => (
-            <button
-              className={type === x ? "active" : ""}
-              onClick={() => setType(x)}
-              key={x}
-            >
-              {x}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="catalog-grid">
-        {list.map((p) => (
-          <article key={p.id}>
-            {p.image_url ? (
-              <img src={p.image_url} />
-            ) : (
-              <div className="product-empty">◇</div>
-            )}
-            <small>
-              {p.brand} · {p.type}
-            </small>
-            <h3>{p.name}</h3>
-            <p>{p.style}</p>
-            <ExpirationBadge value={p.expiration_date} today={today} />
-            <footer>
-              <b>{money(p.price)}</b>
-              <span className={p.quantity ? "" : "sold"}>
-                {p.quantity ? `${p.quantity} em estoque` : "Esgotado"}
-              </span>
-            </footer>
-            {p.quantity > 0 && (
-              <a
-                className="whatsapp-button"
-                href={whatsappUrl(
-                  `Olá! Tenho interesse no produto ${p.name}, no valor de ${money(p.price)}. Vi que há ${p.quantity} unidade(s) em estoque.`,
-                )}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <MessageCircle size={16} /> Pedir pelo WhatsApp
-              </a>
-            )}
-          </article>
-        ))}
-      </div>
-      {!list.length && <Empty />}
-    </>
-  );
-}
-function App() {
+function AdminApp() {
   const [user, setUser] = useState(null),
     [loading, setLoading] = useState(!!localStorage.getItem("token"));
   useEffect(() => {
@@ -2410,7 +2375,11 @@ function App() {
     const token = localStorage.getItem("token");
     if (token)
       api("/me")
-        .then((currentUser) => setUser(currentUser))
+        .then((currentUser) => {
+          if (!["admin", "funcionario"].includes(currentUser.role))
+            throw new Error("Use a área do cliente");
+          setUser(currentUser);
+        })
         .catch(() => {
           localStorage.removeItem("token");
           setUser(null);
@@ -2425,6 +2394,21 @@ function App() {
     <Shell user={user} setUser={setUser} />
   ) : (
     <Login onLogin={setUser} />
+  );
+}
+function App() {
+  const [route, setRoute] = useState(() => location.hash.slice(1) || "/loja");
+  useEffect(() => {
+    const update = () => setRoute(location.hash.slice(1) || "/loja");
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
+  return route.startsWith("/admin") ? (
+    <AdminApp />
+  ) : (
+    <React.Suspense fallback={<Loading />}>
+      <Storefront api={api} route={route} />
+    </React.Suspense>
   );
 }
 class ErrorBoundary extends React.Component {

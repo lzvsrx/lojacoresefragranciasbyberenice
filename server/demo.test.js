@@ -26,6 +26,14 @@ test("Vercel without persistent storage allows reading and login but refuses wri
   setup
     .prepare("INSERT INTO users(username,password,role,name) VALUES(?,?,?,?)")
     .run("admin", bcrypt.hashSync("Admin123!", 4), "admin", "Admin Teste");
+  setup
+    .prepare("INSERT INTO users(username,password,role,name) VALUES(?,?,?,?)")
+    .run(
+      "cliente",
+      bcrypt.hashSync("Cliente123!", 4),
+      "cliente",
+      "Cliente Teste",
+    );
   setup.close();
   const { default: app, database } = await import("./index.js");
   const server = app.listen(0, "127.0.0.1");
@@ -65,4 +73,21 @@ test("Vercel without persistent storage allows reading and login but refuses wri
   });
   assert.equal(write.status, 503);
   assert.match((await write.json()).error, /persistente/);
+  const customerLogin = await fetch(base + "/customer/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "cliente", password: "Cliente123!" }),
+  });
+  assert.equal(customerLogin.status, 200);
+  await customerLogin.json();
+  const registration = await fetch(base + "/customer/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  });
+  assert.equal(registration.status, 503);
+  await registration.json();
+  const catalog = await fetch(base + "/catalog");
+  assert.equal(catalog.status, 200);
+  await catalog.json();
 });

@@ -38,8 +38,21 @@ export const createApiLimiter = () =>
     legacyHeaders: false,
     // Login has its own limit; catalog images must not exhaust the API quota.
     skip: (req) =>
-      (req.method === "POST" && req.path === "/login") ||
+      (req.method === "POST" &&
+        ["/login", "/customer/login"].includes(req.path)) ||
       ((req.method === "GET" || req.method === "HEAD") &&
         /^\/(products|users)\/\d+\/image\/?$/.test(req.path)),
     message: { error: "Limite temporário de requisições excedido" },
+  });
+
+export const createRegistrationLimiter = () =>
+  rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 10,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: {
+      error:
+        "Muitas tentativas de cadastro. Aguarde antes de tentar novamente.",
+    },
   });

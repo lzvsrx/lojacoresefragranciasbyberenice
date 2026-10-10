@@ -480,6 +480,233 @@ test("API regression suite uses an isolated database", async (t) => {
     },
   );
   await t.test(
+    "public catalog, customer registration and isolated permissions",
+    async () => {
+      const available = await request("/products", "POST", {
+        ...product,
+        name: "Perfume Ação Flor",
+        brand: "Essência",
+        type: "Perfumaria",
+        price: 23.45,
+        quantity: 4,
+        expiration_date: "2099-01-01",
+      });
+      const expired = await request("/products", "POST", {
+        ...product,
+        name: "Perfume Ação Vencido",
+        brand: "Essência",
+        expiration_date: "2000-01-01",
+      });
+      const out = await request("/products", "POST", {
+        ...product,
+        name: "Perfume Ação Esgotado",
+        brand: "Essência",
+        quantity: 0,
+        expiration_date: null,
+      });
+      const publicCatalog = await request(
+        "/catalog?q=acao%20essencia",
+        "GET",
+        undefined,
+        false,
+      );
+      assert.equal(publicCatalog.status, 200);
+      assert.equal(publicCatalog.body.total, 1);
+      assert.equal(publicCatalog.body.items[0].id, available.body.id);
+      assert.equal("sold_value" in publicCatalog.body.items[0], false);
+      assert.equal("search" in publicCatalog.body.items[0], false);
+      assert.equal(
+        (
+          await request(
+            "/catalog?q=acao%20essencia&stock=all",
+            "GET",
+            undefined,
+            false,
+          )
+        ).body.total,
+        2,
+      );
+      await request("/products", "POST", {
+        ...product,
+        name: "Ação Leve",
+        brand: "Essência",
+        price: 10,
+        expiration_date: "2099-01-01",
+      });
+      const paged = await request(
+        "/catalog?q=acao%20essencia&sort=price-asc&limit=1&page=2",
+        "GET",
+        undefined,
+        false,
+      );
+      assert.equal(paged.body.total, 2);
+      assert.equal(paged.body.items[0].id, available.body.id);
+      assert.equal(paged.body.pages, 2);
+      assert.equal(
+        (await request("/catalog?limit=100", "GET", undefined, false)).status,
+        400,
+      );
+      assert.equal(
+        (await request("/catalog?min=20&max=10", "GET", undefined, false))
+          .status,
+        400,
+      );
+      const registration = {
+        name: "Cliente Público",
+        username: "cliente.publico",
+        email: "PUBLICO@example.com",
+        password: "Cliente123!",
+        role: "admin",
+      };
+      assert.equal(
+        (
+          await request(
+            "/customer/register",
+            "POST",
+            { ...registration, password: "123" },
+            false,
+          )
+        ).status,
+        400,
+      );
+      const registered = await request(
+        "/customer/register",
+        "POST",
+        registration,
+        false,
+      );
+      assert.equal(registered.status, 201);
+      assert.equal(registered.body.user.role, "cliente");
+      assert.equal(registered.body.user.email, "publico@example.com");
+      assert.equal("password" in registered.body.user, false);
+      assert.equal(
+        (
+          await request(
+            "/customer/register",
+            "POST",
+            { ...registration, username: "CLIENTE.PUBLICO" },
+            false,
+          )
+        ).status,
+        409,
+      );
+      assert.equal(
+        (
+          await request(
+            "/customer/login",
+            "POST",
+            { username: "admin", password: "Admin123!" },
+            false,
+          )
+        ).status,
+        401,
+      );
+      assert.equal(
+        (
+          await request(
+            "/login",
+            "POST",
+            { ...registration, portal: "admin" },
+            false,
+          )
+        ).status,
+        401,
+      );
+      assert.equal(
+        (await request("/customer/login", "POST", registration, false)).status,
+        200,
+      );
+      const adminToken = token;
+      const publicPhoto = await fetch(
+        base + `/users/${login.body.user.id}/image`,
+      );
+      assert.equal(publicPhoto.status, 401);
+      await publicPhoto.json();
+      token = registered.body.token;
+      try {
+        assert.equal(
+          (await request(`/users/${login.body.user.id}/image`)).status,
+          403,
+        );
+        const image = Buffer.from(
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4WQAAAAASUVORK5CYII=",
+          "base64",
+        );
+        const upload = new FormData();
+        upload.append(
+          "image",
+          new Blob([image], { type: "image/png" }),
+          "profile.png",
+        );
+        assert.equal((await request("/me/image", "PUT", upload)).status, 200);
+        const ownPhoto = await fetch(
+          base + `/users/${registered.body.user.id}/image`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        assert.equal(ownPhoto.status, 200);
+        assert.deepEqual(Buffer.from(await ownPhoto.arrayBuffer()), image);
+        assert.equal((await request("/me")).body.role, "cliente");
+        for (const route of [
+          "/products",
+          "/users",
+          "/dashboard",
+          "/stock-movements",
+          "/payment-methods",
+          "/sales",
+        ])
+          assert.equal((await request(route)).status, 403, route);
+        assert.equal((await request("/products", "POST", product)).status, 403);
+        const items = encodeURIComponent(
+          JSON.stringify([{ id: available.body.id, quantity: 2, price: 0.01 }]),
+        );
+        const quote = await request(`/catalog/quote?items=${items}`);
+        assert.equal(quote.status, 200);
+        assert.equal(quote.body.total_cents, 4690);
+        assert.equal(
+          (
+            await request(
+              `/catalog/quote?items=${items}`,
+              "GET",
+              undefined,
+              false,
+            )
+          ).status,
+          401,
+        );
+        for (const [id, quantity] of [
+          [available.body.id, 99],
+          [expired.body.id, 1],
+          [out.body.id, 1],
+        ]) {
+          const bad = encodeURIComponent(JSON.stringify([{ id, quantity }]));
+          assert.equal(
+            (await request(`/catalog/quote?items=${bad}`)).status,
+            409,
+          );
+        }
+      } finally {
+        token = adminToken;
+      }
+      assert.equal(
+        (
+          await request("/sales", "POST", {
+            product_id: expired.body.id,
+            quantity: 1,
+            payment_method_id: cash,
+            amount_received: 100,
+          })
+        ).status,
+        400,
+      );
+      assert.equal(
+        db
+          .prepare("SELECT quantity FROM products WHERE id=?")
+          .get(available.body.id).quantity,
+        4,
+      );
+    },
+  );
+  await t.test(
     "password change invalidates previously issued sessions",
     async () => {
       const result = await request("/users/1", "PUT", {

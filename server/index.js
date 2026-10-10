@@ -1,7 +1,11 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import { createApiLimiter, createLoginLimiter } from "./rate-limits.js";
+import {
+  createApiLimiter,
+  createLoginLimiter,
+  createRegistrationLimiter,
+} from "./rate-limits.js";
 import { createDatabase } from "./database.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -26,6 +30,7 @@ import {
   dateValue,
 } from "./validation.js";
 import { storeToday, expirationStatus } from "../src/expiration.js";
+import { normalizeSearch, matchesProduct } from "../src/search.js";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 if (process.env.NODE_ENV !== "test" && existsSync(path.join(root, ".env")))
   loadEnvFile(path.join(root, ".env"));
@@ -298,7 +303,7 @@ app.use("/api", (req, res, next) => {
     isVercel &&
     !db.remote &&
     !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
-    req.path !== "/login"
+    !["/login", "/customer/login"].includes(req.path)
   )
     return res.status(503).json({
       error:
@@ -409,7 +414,17 @@ const validateUser = (u, isEdit = false) => {
   }
   return null;
 };
-app.post("/api/login", loginLimiter, async (req, res) => {
+const sessionResponse = (u) => ({
+  user: safeUser(u),
+  token: jwt.sign({ id: u.id, session_version: u.session_version }, secret, {
+    algorithm: "HS256",
+    expiresIn: "8h",
+    issuer: "cores-fragrancias-api",
+    audience: "cores-fragrancias-web",
+    subject: String(u.id),
+  }),
+});
+const login = async (req, res) => {
   const username = clean(req.body?.username, 40).toLowerCase(),
     password = String(req.body?.password || "");
   if (Buffer.byteLength(password, "utf8") > 72)
@@ -422,29 +437,56 @@ app.post("/api/login", loginLimiter, async (req, res) => {
   const hash =
     u?.password ||
     "$2b$10$C6UzMDM.H6dfI/f/IKxGhu8djhL4qSP2jB5N1.klM2.V5iQn.7gNi";
-  if (!bcrypt.compareSync(password, hash) || !u)
+  if (
+    !(await bcrypt.compare(password, hash)) ||
+    !u ||
+    (req.path === "/api/customer/login" && u.role !== "cliente") ||
+    (req.body?.portal === "admin" && !["admin", "funcionario"].includes(u.role))
+  )
     return res.status(401).json({
       error: "Usuário ou senha incorretos",
     });
-  const user = safeUser(u);
-  res.set("Cache-Control", "no-store").json({
-    user,
-    token: jwt.sign(
-      {
-        ...user,
-        session_version: u.session_version,
-      },
-      secret,
-      {
-        algorithm: "HS256",
-        expiresIn: "8h",
-        issuer: "cores-fragrancias-api",
-        audience: "cores-fragrancias-web",
-        subject: String(user.id),
-      },
-    ),
-  });
-});
+  res.set("Cache-Control", "no-store").json(sessionResponse(u));
+};
+app.post("/api/login", loginLimiter, login);
+app.post("/api/customer/login", loginLimiter, login);
+app.post(
+  "/api/customer/register",
+  createRegistrationLimiter(),
+  async (req, res) => {
+    const b = normalizeUser({
+      name: req.body?.name,
+      username: req.body?.username,
+      password: req.body?.password,
+      email: req.body?.email,
+      phone: req.body?.phone,
+      role: "cliente",
+    });
+    const error = validateUser(b);
+    if (error || !b.email) throw inputError(error || "Informe seu e-mail");
+    const password = await bcrypt.hash(b.password, 12);
+    const user = await db.transaction(async () => {
+      if (
+        await db
+          .prepare("SELECT 1 FROM users WHERE lower(username)=?")
+          .get(b.username)
+      )
+        throw inputError(
+          "Esse nome de usuário já está em uso. Escolha outro.",
+          409,
+        );
+      const created = await db
+        .prepare(
+          "INSERT INTO users(username,password,role,name,email,phone) VALUES(?,?,'cliente',?,?,?)",
+        )
+        .run(b.username, password, b.name, b.email, b.phone);
+      return db
+        .prepare("SELECT * FROM users WHERE id=?")
+        .get(Number(created.lastInsertRowid));
+    })();
+    res.status(201).json(sessionResponse(user));
+  },
+);
 app.get("/api/me", auth(), async (req, res) =>
   res.json(
     safeUser(
@@ -452,7 +494,9 @@ app.get("/api/me", auth(), async (req, res) =>
     ),
   ),
 );
-app.get("/api/users/:id/image", async (req, res) => {
+app.get("/api/users/:id/image", auth(), async (req, res) => {
+  if (req.user.role === "cliente" && req.user.id !== Number(req.params.id))
+    throw inputError("Sem permissão para consultar esta foto", 403);
   const x = await db
     .prepare("SELECT profile_image FROM users WHERE id=?")
     .get(req.params.id);
@@ -497,7 +541,157 @@ app.put(
     });
   },
 );
-app.get("/api/products", auth(), async (req, res) => {
+let catalogSnapshot = null;
+let catalogVersion = 0;
+app.use("/api", (req, res, next) => {
+  if (!["GET", "HEAD", "OPTIONS"].includes(req.method))
+    res.on("finish", () => {
+      if (res.statusCode < 400) {
+        catalogSnapshot = null;
+        catalogVersion++;
+      }
+    });
+  next();
+});
+const catalogProducts = async () => {
+  if (catalogSnapshot && Date.now() - catalogSnapshot.time < 15000)
+    return catalogSnapshot.items;
+  const version = catalogVersion;
+  const rows = await db
+    .prepare(
+      `SELECT id,name,brand,style,type,price,quantity,expiration_date,
+    CASE WHEN length(image)>0 THEN 1 ELSE 0 END image FROM products ORDER BY id DESC`,
+    )
+    .all();
+  const items = rows.map((p) => ({
+    ...productJson(p),
+    search: normalizeSearch([p.id, p.name, p.brand, p.type, p.style].join(" ")),
+  }));
+  if (version === catalogVersion) catalogSnapshot = { time: Date.now(), items };
+  return items;
+};
+app.get("/api/catalog", async (req, res) => {
+  const today = storeToday();
+  const products = (await catalogProducts()).filter(
+    (p) =>
+      Number.isFinite(p.price) &&
+      p.price >= 0 &&
+      expirationStatus(p.expiration_date, today)?.status !== "expired",
+  );
+  const words = normalizeSearch(clean(req.query.q, 160))
+    .split(/\s+/)
+    .filter(Boolean);
+  const category = clean(req.query.category, 100),
+    brand = clean(req.query.brand, 100);
+  const min =
+    req.query.min === undefined || req.query.min === ""
+      ? 0
+      : numberValue(req.query.min, "Preço mínimo");
+  const max =
+    req.query.max === undefined || req.query.max === ""
+      ? 1e9
+      : numberValue(req.query.max, "Preço máximo");
+  if (min > max) throw inputError("Preço mínimo maior que o máximo");
+  const limit =
+    req.query.limit === undefined
+      ? 24
+      : numberValue(req.query.limit, "Itens por página", {
+          integer: true,
+          min: 1,
+          max: 48,
+        });
+  const requestedPage =
+    req.query.page === undefined
+      ? 1
+      : numberValue(req.query.page, "Página", {
+          integer: true,
+          min: 1,
+          max: 1e6,
+        });
+  let filtered = products.filter(
+    (p) =>
+      words.every((word) => p.search.includes(word)) &&
+      (!category || p.type === category) &&
+      (!brand || p.brand === brand) &&
+      (req.query.stock === "all" || p.quantity > 0) &&
+      p.price >= min &&
+      p.price <= max,
+  );
+  const comparators = {
+    "price-asc": (a, b) => a.price - b.price || b.id - a.id,
+    "price-desc": (a, b) => b.price - a.price || b.id - a.id,
+    name: (a, b) => a.name.localeCompare(b.name, "pt-BR") || b.id - a.id,
+  };
+  if (comparators[req.query.sort]) filtered.sort(comparators[req.query.sort]);
+  const total = filtered.length,
+    pages = Math.max(1, Math.ceil(total / limit)),
+    page = Math.min(requestedPage, pages);
+  res.json({
+    items: filtered
+      .slice((page - 1) * limit, page * limit)
+      .map(({ search, ...p }) => p),
+    total,
+    page,
+    pages,
+    categories: [...new Set(products.map((p) => p.type).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b, "pt-BR"),
+    ),
+    brands: [...new Set(products.map((p) => p.brand).filter(Boolean))].sort(
+      (a, b) => a.localeCompare(b, "pt-BR"),
+    ),
+  });
+});
+app.get("/api/catalog/quote", auth(["cliente"]), async (req, res) => {
+  let items;
+  try {
+    items = JSON.parse(req.query.items);
+  } catch {
+    throw inputError("Sacola inválida");
+  }
+  if (!Array.isArray(items) || !items.length || items.length > 40)
+    throw inputError("Selecione de 1 a 40 produtos");
+  const ids = items.map((item) =>
+    numberValue(item?.id, "Produto", { integer: true, min: 1 }),
+  );
+  if (new Set(ids).size !== ids.length)
+    throw inputError("Produto repetido na sacola");
+  const products = await db
+    .prepare(
+      `SELECT id,name,price,quantity,expiration_date FROM products WHERE id IN (${ids.map(() => "?").join(",")})`,
+    )
+    .all(...ids);
+  const today = storeToday();
+  const quoted = items.map((item) => {
+    const p = products.find((p) => p.id === Number(item.id));
+    const quantity = numberValue(item.quantity, "Quantidade", {
+      integer: true,
+      min: 1,
+      max: 999,
+    });
+    if (
+      !p ||
+      p.quantity < quantity ||
+      expirationStatus(p.expiration_date, today)?.status === "expired"
+    )
+      throw inputError(
+        `${p?.name || "Produto"} indisponível na quantidade solicitada. Atualize a sacola.`,
+        409,
+      );
+    const cents = Math.round(numberValue(p.price, "Preço") * 100);
+    return {
+      id: p.id,
+      name: p.name,
+      quantity,
+      unit_price_cents: cents,
+      total_cents: cents * quantity,
+    };
+  });
+  res.json({
+    items: quoted,
+    total_cents: quoted.reduce((sum, p) => sum + p.total_cents, 0),
+  });
+});
+app.get("/api/products", auth(["admin", "funcionario"]), async (req, res) => {
   let rows = await db
     .prepare(
       `SELECT p.id,p.name,p.brand,p.style,p.type,p.price,p.quantity,p.expiration_date,
@@ -510,14 +704,7 @@ app.get("/api/products", auth(), async (req, res) => {
     )
     .all();
   const q = clean(req.query.q, 200).toLowerCase();
-  if (q)
-    rows = rows.filter((p) =>
-      [p.id, p.name, p.brand, p.style, p.type].some((v) =>
-        String(v || "")
-          .toLowerCase()
-          .includes(q),
-      ),
-    );
+  if (q) rows = rows.filter((p) => matchesProduct(p, q));
   res.json(rows.map(productJson));
 });
 app.get("/api/products/:id/image", async (req, res) => {
@@ -653,6 +840,8 @@ const sell = db.transaction(async (data, userId) => {
       .prepare("SELECT * FROM payment_methods WHERE id=? AND active=1")
       .get(data.paymentMethodId);
   if (!p) throw new Error("Produto não encontrado");
+  if (expirationStatus(p.expiration_date)?.status === "expired")
+    throw inputError("Produto vencido. Retire-o do estoque antes de vender.");
   if (!method) throw new Error("Forma de pagamento inválida ou desativada");
   if (
     data.customerId &&
