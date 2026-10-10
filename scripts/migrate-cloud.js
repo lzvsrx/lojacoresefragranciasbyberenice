@@ -45,13 +45,23 @@ export async function migrateDatabase(source, client) {
       .prepare(`PRAGMA table_info(${quote(table.name)})`)
       .all()
       .map((column) => column.name);
-    const sql = `INSERT OR IGNORE INTO ${quote(table.name)}(${columns.map(quote).join(",")}) VALUES(${columns.map(() => "?").join(",")})`;
+    const insert = `INSERT OR IGNORE INTO ${quote(table.name)}(${columns.map(quote).join(",")}) VALUES`;
     let batch = [],
       size = 0;
     for (const row of source
       .prepare(`SELECT * FROM ${quote(table.name)}`)
       .iterate()) {
-      const args = columns.map((column) => row[column]);
+      const args = [];
+      const values = columns.map((column) => {
+        const value = row[column];
+        // Decimal JSON transport can round IEEE-754 values. SQL literals with
+        // 17 significant digits preserve the original SQLite REAL exactly.
+        if (typeof value === "number" && !Number.isInteger(value) && Number.isFinite(value))
+          return value.toPrecision(17);
+        args.push(value);
+        return "?";
+      });
+      const sql = `${insert}(${values.join(",")})`;
       const bytes = args.reduce(
         (total, value) =>
           total +
