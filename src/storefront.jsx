@@ -750,6 +750,26 @@ export default function Storefront({ api, route }) {
                 >
                   Explorar a coleção <ArrowRight size={18} />
                 </button>
+                <div
+                  className="store-customer-access"
+                  aria-label="Acesso do cliente"
+                >
+                  <small>Seu espaço de cliente</small>
+                  {user ? (
+                    <a className="button" href="#/cliente">
+                      <UserRound size={17} /> Minha conta
+                    </a>
+                  ) : (
+                    <>
+                      <a className="button primary" href="#/cliente/entrar">
+                        <UserRound size={17} /> Entrar como cliente
+                      </a>
+                      <a className="button" href="#/cliente/cadastrar">
+                        Cadastrar cliente <ArrowRight size={17} />
+                      </a>
+                    </>
+                  )}
+                </div>
               </div>
               <div className="store-hero-image">
                 {heroProduct ? (
