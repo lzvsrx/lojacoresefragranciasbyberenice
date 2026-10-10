@@ -93,6 +93,18 @@ export async function migrateDatabase(source, client) {
         (_match, unique = "") => `CREATE ${unique}INDEX IF NOT EXISTS `,
       ),
     );
+  // Preserve AUTOINCREMENT high-water marks, including IDs of deleted records.
+  if (source.prepare("SELECT 1 FROM sqlite_master WHERE name='sqlite_sequence'").get()) {
+    for (const sequence of source.prepare("SELECT name,seq FROM sqlite_sequence").all()) {
+      await client.execute({ sql: "DELETE FROM sqlite_sequence WHERE name=?", args: [sequence.name] });
+      await client.execute({ sql: "INSERT INTO sqlite_sequence(name,seq) VALUES(?,?)", args: [sequence.name, sequence.seq] });
+    }
+  }
+  for (const object of source.prepare("SELECT type,sql FROM sqlite_master WHERE type IN ('view','trigger') AND sql IS NOT NULL ORDER BY type,name").all()) {
+    await client.execute(object.sql.replace(/^CREATE (VIEW|TRIGGER)\s+/i, "CREATE $1 IF NOT EXISTS "));
+  }
+  const foreignKeys = await client.execute("PRAGMA foreign_key_check");
+  if (foreignKeys.rows.length) throw new Error("Chaves estrangeiras inconsistentes. Migração não ativada.");
   await client.execute(
     "UPDATE app_cloud_migration SET status='ready' WHERE id=1",
   );

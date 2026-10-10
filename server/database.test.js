@@ -51,6 +51,30 @@ for (const mode of ["local", "libsql"]) {
   });
 }
 
+test("migration preserves deleted ID sequences, views and triggers", async () => {
+  const source = new Database(":memory:");
+  const client = createClient({ url: "file::memory:" });
+  try {
+    source.exec(`
+      CREATE TABLE products(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT);
+      CREATE TABLE audit(product_id INTEGER);
+      INSERT INTO products(id,name) VALUES(1,'Primeiro'),(50,'Removido');
+      DELETE FROM products WHERE id=50;
+      CREATE VIEW product_names AS SELECT name FROM products;
+      CREATE TRIGGER product_audit AFTER INSERT ON products
+        BEGIN INSERT INTO audit(product_id) VALUES(new.id); END;
+    `);
+    await migrateDatabase(source, client);
+    const added = await client.execute("INSERT INTO products(name) VALUES('Novo')");
+    assert.equal(Number(added.lastInsertRowid), 51);
+    assert.equal((await client.execute("SELECT * FROM audit")).rows[0].product_id, 51);
+    assert.equal((await client.execute("SELECT * FROM product_names")).rows.length, 2);
+  } finally {
+    source.close();
+    client.close();
+  }
+});
+
 test("cloud migration resumes after interruption, copies blobs and refuses overwriting a ready database", async () => {
   const source = new Database(":memory:");
   source.exec(

@@ -36,6 +36,7 @@ test("API regression suite uses an isolated database", async (t) => {
     delete process.env.TURSO_AUTH_TOKEN;
   }
   const { default: app, testDatabase, database } = await import("./index.js");
+  assert.equal(database.remote, process.env.CORESE_TEST_REMOTE === "1");
   const db = testDatabase || new Database(process.env.DATABASE_PATH);
   const server = app.listen(0, "127.0.0.1");
   await new Promise((resolve) => server.once("listening", resolve));

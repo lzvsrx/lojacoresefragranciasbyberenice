@@ -153,6 +153,8 @@ O servidor lê `.env` automaticamente. Use `.env.example` como referência e sub
 | `PORT`          | Porta do servidor; padrão `3001`.                |
 | `JWT_SECRET`    | Chave das sessões; gerada localmente se ausente. |
 | `DATABASE_PATH` | Caminho opcional do arquivo SQLite local.        |
+| `TURSO_DATABASE_URL` | URL do banco libSQL persistente; tem prioridade sobre o SQLite local. |
+| `TURSO_AUTH_TOKEN` | Token privado de acesso ao banco remoto. |
 
 Gere uma chave aleatória com:
 
@@ -165,6 +167,10 @@ Não publique `.env`, tokens ou chaves. Sem `JWT_SECRET` no modo local, o servid
 ## Banco local, privacidade e backup
 
 O banco operacional padrão fica em `server/data/store.db`. Na primeira execução, se ele não existir, o servidor copia `server/data/store.seed.db`.
+
+Para usar os mesmos dados no computador e na Vercel, crie um banco libSQL vazio no Turso, configure `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` no `.env` local e execute `npm run migrate:cloud`. A migração usa um backup consistente, copia registros, imagens, índices, sequências, views e triggers e confere contagens e chaves estrangeiras. Depois configure essas duas variáveis na Vercel e publique novamente. Reinicie o servidor local para ele passar a usar o mesmo banco remoto. O SQLite original permanece como cópia local; não há sincronização automática entre arquivos SQLite separados.
+
+Sem banco remoto configurado, a Vercel continua usando uma cópia temporária da base pública. Gravações nesse modo não são persistentes e não correspondem ao banco operacional do computador. O arquivo criptografado no repositório é um backup e não é carregado automaticamente pela aplicação.
 
 A base pública contém catálogo, imagens e histórico anonimizado. Banco operacional, backups e credenciais são ignorados pelo Git. Enviar o código ao GitHub não envia os dados atuais da loja.
 

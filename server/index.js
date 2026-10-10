@@ -41,15 +41,23 @@ const databasePath =
   (isVercel
     ? path.join(process.env.TMPDIR || "/tmp", "store.db")
     : path.join(root, "server/data/store.db"));
-mkdirSync(path.dirname(databasePath), { recursive: true });
+const remoteUrl = process.env.TURSO_DATABASE_URL;
+if (remoteUrl && !process.env.TURSO_AUTH_TOKEN && !remoteUrl.startsWith("file:"))
+  throw new Error("Configure TURSO_AUTH_TOKEN para conectar o banco persistente.");
 const seedPath = path.join(root, "server/data/store.seed.db");
-if (!existsSync(databasePath)) {
+if (!remoteUrl) {
+  mkdirSync(path.dirname(databasePath), { recursive: true });
+}
+if (!remoteUrl && !existsSync(databasePath)) {
   if (!existsSync(seedPath))
     throw new Error("Banco inicial server/data/store.seed.db não encontrado");
   copyFileSync(seedPath, databasePath);
 }
-// Always use the project SQLite database, including when legacy Turso variables exist.
-const db = await createDatabase({ filename: databasePath });
+const db = await createDatabase({
+  filename: databasePath,
+  url: remoteUrl,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
 await db.pragma("journal_mode = WAL");
 await db.pragma("foreign_keys = ON");
 await db.pragma("busy_timeout = 5000");
@@ -266,7 +274,7 @@ app.use("/api", (_req, res, next) => {
 });
 app.get("/api/storage-status", (_req, res) =>
   res.json({
-    persistent: !isVercel,
+    persistent: db.remote || !isVercel,
     writable: true,
   }),
 );
