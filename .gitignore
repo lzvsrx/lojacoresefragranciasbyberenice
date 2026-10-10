@@ -4,6 +4,9 @@ dist/
 server/data/*.db-shm
 server/data/*.db-wal
 server/data/store.db
+server/data/.jwt-secret
+**/.jwt-secret
+server/data/backups/
 
 .vercel
 .env*

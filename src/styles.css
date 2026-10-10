@@ -901,6 +901,19 @@ td {
   width: fit-content;
   margin-top: 6px;
 }
+.load-error {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  border: 1px solid #c33;
+  border-radius: 12px;
+  background: #fff1f1;
+  color: #8b2222;
+}
 .expiration-alerts {
   margin: 16px 0;
   padding: 16px;

@@ -2,7 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import { createApiLimiter, createLoginLimiter } from "./rate-limits.js";
-import Database from "better-sqlite3";
+import { createDatabase } from "./database.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import multer from "multer";
@@ -10,50 +10,106 @@ import Papa from "papaparse";
 import PDFDocument from "pdfkit";
 import path from "path";
 import { fileURLToPath } from "url";
-import { randomBytes } from "crypto";
-import { copyFileSync, existsSync } from "fs";
-
+import { randomBytes, randomUUID } from "crypto";
+import {
+  copyFileSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+} from "fs";
+import { loadEnvFile } from "node:process";
+import {
+  inputError,
+  productInput,
+  numberValue,
+  dateValue,
+} from "./validation.js";
+import { storeToday } from "../src/expiration.js";
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+if (process.env.NODE_ENV !== "test" && existsSync(path.join(root, ".env")))
+  loadEnvFile(path.join(root, ".env"));
 const isVercel = Boolean(process.env.VERCEL);
-const databasePath = isVercel
-  ? path.join(process.env.TMPDIR || "/tmp", "store.db")
-  : path.join(root, "server/data/store.db");
+const databasePath =
+  process.env.DATABASE_PATH ||
+  (isVercel
+    ? path.join(process.env.TMPDIR || "/tmp", "store.db")
+    : path.join(root, "server/data/store.db"));
+if (!process.env.TURSO_DATABASE_URL)
+  mkdirSync(path.dirname(databasePath), {
+    recursive: true,
+  });
 const seedPath = path.join(root, "server/data/store.seed.db");
-if (!existsSync(databasePath)) {
+if (!process.env.TURSO_DATABASE_URL && !existsSync(databasePath)) {
   if (!existsSync(seedPath))
     throw new Error("Banco inicial server/data/store.seed.db não encontrado");
   copyFileSync(seedPath, databasePath);
 }
-const db = new Database(databasePath);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-const saleColumns = new Set(
-  db
-    .prepare("PRAGMA table_info(sales)")
-    .all()
-    .map((column) => column.name),
-);
-for (const [name, type] of [
-  ["customer_id", "INTEGER"],
-  ["payment_method", "TEXT"],
-  ["order_number", "TEXT"],
-  ["order_status", "TEXT DEFAULT 'Concluído'"],
-  ["payment_code", "TEXT"],
-  ["transaction_reference", "TEXT"],
-  ["installments", "INTEGER DEFAULT 1"],
-  ["amount_received", "REAL"],
-  ["change_amount", "REAL DEFAULT 0"],
-  ["fiscal_document", "TEXT"],
-  ["fiscal_key", "TEXT"],
-]) {
-  if (!saleColumns.has(name))
-    db.exec(`ALTER TABLE sales ADD COLUMN ${name} ${type}`);
+const db = await createDatabase({
+  filename: databasePath,
+  url: process.env.TURSO_DATABASE_URL,
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+if (
+  db.remote &&
+  !(await db
+    .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'")
+    .get())
+)
+  throw new Error(
+    "Banco persistente vazio. Execute npm run migrate:cloud antes de publicar",
+  );
+if (
+  db.remote &&
+  (await db
+    .prepare("SELECT 1 FROM sqlite_master WHERE name='app_cloud_migration'")
+    .get())
+) {
+  const migration = await db
+    .prepare("SELECT status FROM app_cloud_migration WHERE id=1")
+    .get();
+  if (migration?.status !== "ready")
+    throw new Error("A migração do banco ainda não foi concluída");
 }
-db.exec(
-  `CREATE TABLE IF NOT EXISTS payment_methods(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,requires_reference INTEGER NOT NULL DEFAULT 0,max_installments INTEGER NOT NULL DEFAULT 1,instructions TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP)`,
-);
-db.exec(
-  `CREATE TABLE IF NOT EXISTS stock_movements(
+if (db.remote && !process.env.JWT_SECRET)
+  throw new Error("Configure JWT_SECRET junto ao banco persistente");
+await db.pragma("journal_mode = WAL");
+await db.pragma("foreign_keys = ON");
+await db.pragma("busy_timeout = 5000");
+await db.transaction(async () => {
+  if (
+    !(await db.prepare("PRAGMA table_info(users)").all()).some(
+      (column) => column.name === "session_version",
+    )
+  )
+    await db.exec(
+      "ALTER TABLE users ADD COLUMN session_version INTEGER NOT NULL DEFAULT 0",
+    );
+  const saleColumns = new Set(
+    (await db.prepare("PRAGMA table_info(sales)").all()).map(
+      (column) => column.name,
+    ),
+  );
+  for (const [name, type] of [
+    ["customer_id", "INTEGER"],
+    ["payment_method", "TEXT"],
+    ["order_number", "TEXT"],
+    ["order_status", "TEXT DEFAULT 'Concluído'"],
+    ["payment_code", "TEXT"],
+    ["transaction_reference", "TEXT"],
+    ["installments", "INTEGER DEFAULT 1"],
+    ["amount_received", "REAL"],
+    ["change_amount", "REAL DEFAULT 0"],
+    ["fiscal_document", "TEXT"],
+    ["fiscal_key", "TEXT"],
+  ]) {
+    if (!saleColumns.has(name))
+      await db.exec(`ALTER TABLE sales ADD COLUMN ${name} ${type}`);
+  }
+  await db.exec(
+    `CREATE TABLE IF NOT EXISTS payment_methods(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,active INTEGER NOT NULL DEFAULT 1,requires_reference INTEGER NOT NULL DEFAULT 0,max_installments INTEGER NOT NULL DEFAULT 1,instructions TEXT,created_at TEXT DEFAULT CURRENT_TIMESTAMP,updated_at TEXT DEFAULT CURRENT_TIMESTAMP)`,
+  );
+  await db.exec(`CREATE TABLE IF NOT EXISTS stock_movements(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_id INTEGER NOT NULL,
     movement_type TEXT NOT NULL CHECK(movement_type IN ('ENTRADA','SAIDA','AJUSTE','VENDA','CANCELAMENTO')),
@@ -67,75 +123,86 @@ db.exec(
     FOREIGN KEY(product_id) REFERENCES products(id),
     FOREIGN KEY(user_id) REFERENCES users(id),
     FOREIGN KEY(sale_id) REFERENCES sales(id)
-  )`,
-);
-const seedPayment = db.prepare(
-  "INSERT OR IGNORE INTO payment_methods(code,name,active,requires_reference,max_installments,instructions) VALUES(?,?,?,?,?,?)",
-);
-for (const method of [
-  [
-    "01",
-    "Dinheiro",
-    1,
-    0,
-    1,
-    "Informe o valor recebido para calcular o troco.",
-  ],
-  [
-    "03",
-    "Cartão de crédito",
-    1,
-    1,
-    12,
-    "Registre somente NSU ou código de autorização. Nunca armazene o número completo do cartão ou CVV.",
-  ],
-  [
-    "04",
-    "Cartão de débito",
-    1,
-    1,
-    1,
-    "Registre somente NSU ou código de autorização.",
-  ],
-  [
-    "15",
-    "Boleto bancário",
-    0,
-    1,
-    1,
-    "Registre a identificação segura do boleto.",
-  ],
-  [
-    "17",
-    "Pix dinâmico",
-    1,
-    1,
-    1,
-    "Registre TxID ou EndToEndId retornado pela instituição financeira.",
-  ],
-  [
-    "18",
-    "Transferência bancária / carteira digital",
-    1,
-    1,
-    1,
-    "Registre a referência fornecida pela instituição.",
-  ],
-  [
-    "20",
-    "Pix estático",
-    1,
-    1,
-    1,
-    "Registre EndToEndId ou referência de conciliação.",
-  ],
-  ["99", "Outros", 0, 1, 1, "Descreva e registre a referência do pagamento."],
-])
-  seedPayment.run(...method);
+  )`);
+  const seedPayment = db.prepare(
+    "INSERT OR IGNORE INTO payment_methods(code,name,active,requires_reference,max_installments,instructions) VALUES(?,?,?,?,?,?)",
+  );
+  // Older versions allowed deleting products that still had historical sales.
+  // Recover only their reference, with zero stock; never invent available inventory.
+  await db.exec(`INSERT OR IGNORE INTO products(id,name,brand,style,type,price,quantity)
+  SELECT missing.product_id,'Produto histórico #' || missing.product_id,'','','Histórico',0,0
+  FROM (SELECT product_id FROM sales UNION SELECT product_id FROM stock_movements) missing
+  WHERE missing.product_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM products p WHERE p.id=missing.product_id)`);
+  for (const method of [
+    [
+      "01",
+      "Dinheiro",
+      1,
+      0,
+      1,
+      "Informe o valor recebido para calcular o troco.",
+    ],
+    [
+      "03",
+      "Cartão de crédito",
+      1,
+      1,
+      12,
+      "Registre somente NSU ou código de autorização. Nunca armazene o número completo do cartão ou CVV.",
+    ],
+    [
+      "04",
+      "Cartão de débito",
+      1,
+      1,
+      1,
+      "Registre somente NSU ou código de autorização.",
+    ],
+    [
+      "15",
+      "Boleto bancário",
+      0,
+      1,
+      1,
+      "Registre a identificação segura do boleto.",
+    ],
+    [
+      "17",
+      "Pix dinâmico",
+      1,
+      1,
+      1,
+      "Registre TxID ou EndToEndId retornado pela instituição financeira.",
+    ],
+    [
+      "18",
+      "Transferência bancária / carteira digital",
+      1,
+      1,
+      1,
+      "Registre a referência fornecida pela instituição.",
+    ],
+    [
+      "20",
+      "Pix estático",
+      1,
+      1,
+      1,
+      "Registre EndToEndId ou referência de conciliação.",
+    ],
+    ["99", "Outros", 0, 1, 1, "Descreva e registre a referência do pagamento."],
+  ])
+    await seedPayment.run(...method);
+})();
 const app = express();
+if (isVercel) app.set("trust proxy", 1);
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 20 },
+  limits: {
+    fileSize: 4 * 1024 * 1024,
+    files: 1,
+    fields: 20,
+  },
   fileFilter: (_req, file, callback) => {
     const allowed = [
       "image/png",
@@ -145,14 +212,27 @@ const upload = multer({
     ];
     allowed.includes(file.mimetype)
       ? callback(null, true)
-      : callback(new Error("Tipo de arquivo não permitido"));
+      : callback(
+          inputError("Tipo de arquivo não permitido. Use PNG, JPEG ou CSV"),
+        );
   },
 });
-const secret = process.env.JWT_SECRET || randomBytes(48).toString("hex");
-if (!process.env.JWT_SECRET)
+let secret = process.env.JWT_SECRET;
+if (!secret && !isVercel) {
+  const secretPath = path.join(path.dirname(databasePath), ".jwt-secret");
+  if (!existsSync(secretPath))
+    writeFileSync(secretPath, randomBytes(48).toString("hex"), {
+      flag: "wx",
+      mode: 0o600,
+    });
+  secret = readFileSync(secretPath, "utf8").trim();
+}
+if (!secret) {
+  secret = randomBytes(48).toString("hex");
   console.warn(
-    "JWT_SECRET não definido: usando chave temporária segura; sessões serão encerradas ao reiniciar.",
+    "Configure JWT_SECRET na hospedagem para manter as sessões entre instâncias.",
   );
+}
 app.disable("x-powered-by");
 app.use(
   helmet({
@@ -165,9 +245,12 @@ app.use(
         imgSrc: ["'self'", "data:", "blob:"],
         connectSrc: ["'self'"],
         frameAncestors: ["'none'"],
+        upgradeInsecureRequests: isVercel ? [] : null,
       },
     },
-    crossOriginResourcePolicy: { policy: "same-origin" },
+    crossOriginResourcePolicy: {
+      policy: "same-origin",
+    },
   }),
 );
 app.use(
@@ -177,16 +260,43 @@ app.use(
       /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
       origin === "https://lojacoresefragranciasbyberenice.vercel.app"
         ? callback(null, true)
-        : callback(new Error("Origem não autorizada")),
+        : callback(null, false),
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     maxAge: 86400,
   }),
 );
-app.use(express.json({ limit: "1mb", type: "application/json" }));
+app.use(
+  express.json({
+    limit: "1mb",
+    type: "application/json",
+  }),
+);
+app.use("/api", (_req, res, next) => {
+  res.set("Cache-Control", "no-store");
+  next();
+});
+app.get("/api/storage-status", (_req, res) =>
+  res.json({
+    persistent: !isVercel || db.remote,
+    writable: !isVercel || db.remote,
+  }),
+);
+app.use("/api", (req, res, next) => {
+  if (
+    isVercel &&
+    !db.remote &&
+    !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
+    req.path !== "/login"
+  )
+    return res.status(503).json({
+      error:
+        "Cadastros e vendas indisponíveis: o administrador precisa conectar o banco persistente da loja",
+    });
+  next();
+});
 app.use("/api", createApiLimiter());
 app.use("/assets", express.static(path.join(root, "client/public/assets")));
-
 const safeUser = (u) =>
   u && {
     id: u.id,
@@ -204,7 +314,7 @@ const safeUser = (u) =>
   };
 const auth =
   (roles = []) =>
-  (req, res, next) => {
+  async (req, res, next) => {
     try {
       const header = req.headers.authorization || "";
       if (!header.startsWith("Bearer ")) throw new Error();
@@ -213,18 +323,30 @@ const auth =
           issuer: "cores-fragrancias-api",
           audience: "cores-fragrancias-web",
         }),
-        current = db
-          .prepare("SELECT id,username,role,name FROM users WHERE id=?")
+        current = await db
+          .prepare(
+            "SELECT id,username,role,name,session_version FROM users WHERE id=?",
+          )
           .get(tokenUser.id);
-      if (!current) throw new Error();
+      if (!current || tokenUser.session_version !== current.session_version)
+        throw new Error();
       req.user = safeUser(current);
       if (roles.length && !roles.includes(current.role))
-        return res
-          .status(403)
-          .json({ error: "Seu perfil não possui permissão para esta ação" });
+        return res.status(403).json({
+          error: "Seu perfil não possui permissão para esta ação",
+        });
       next();
-    } catch {
-      res.status(401).json({ error: "Sessão inválida ou expirada" });
+    } catch (error) {
+      if (
+        error.message &&
+        !["JsonWebTokenError", "TokenExpiredError", "NotBeforeError"].includes(
+          error.name,
+        )
+      )
+        return next(error);
+      res.status(401).json({
+        error: "Sessão inválida ou expirada",
+      });
     }
   };
 const productJson = (p) => ({
@@ -244,6 +366,7 @@ const validPassword = (value) =>
   typeof value === "string" &&
   value.length >= 8 &&
   value.length <= 72 &&
+  Buffer.byteLength(value, "utf8") <= 72 &&
   /[a-z]/.test(value) &&
   /[A-Z]/.test(value) &&
   /\d/.test(value);
@@ -252,7 +375,7 @@ const normalizeUser = (body) => ({
   password: body.password || "",
   role: clean(body.role, 20),
   name: clean(body.name, 120),
-  birth_date: clean(body.birth_date, 10) || null,
+  birth_date: dateValue(body.birth_date),
   email: clean(body.email, 150).toLowerCase() || null,
   phone: clean(body.phone, 25) || null,
   cpf: clean(body.cpf, 18) || null,
@@ -266,6 +389,8 @@ const validateUser = (u, isEdit = false) => {
   if (!["admin", "funcionario", "cliente"].includes(u.role))
     return "Perfil inválido";
   if (u.name.length < 3) return "Informe o nome completo";
+  if (u.birth_date && u.birth_date > storeToday())
+    return "Nascimento não pode estar no futuro";
   if (!validEmail(u.email)) return "E-mail inválido";
   if (!isEdit || u.password) {
     if (!validPassword(u.password))
@@ -273,70 +398,101 @@ const validateUser = (u, isEdit = false) => {
   }
   return null;
 };
-
-app.post("/api/login", loginLimiter, (req, res) => {
+app.post("/api/login", loginLimiter, async (req, res) => {
   const username = clean(req.body?.username, 40).toLowerCase(),
-    password = String(req.body?.password || "").slice(0, 72);
-  const u = db.prepare("SELECT * FROM users WHERE username=?").get(username);
+    password = String(req.body?.password || "");
+  if (Buffer.byteLength(password, "utf8") > 72)
+    return res.status(401).json({
+      error: "Usuário ou senha incorretos",
+    });
+  const u = await db
+    .prepare("SELECT * FROM users WHERE username=?")
+    .get(username);
   const hash =
     u?.password ||
     "$2b$10$C6UzMDM.H6dfI/f/IKxGhu8djhL4qSP2jB5N1.klM2.V5iQn.7gNi";
   if (!bcrypt.compareSync(password, hash) || !u)
-    return res.status(401).json({ error: "Usuário ou senha incorretos" });
+    return res.status(401).json({
+      error: "Usuário ou senha incorretos",
+    });
   const user = safeUser(u);
   res.set("Cache-Control", "no-store").json({
     user,
-    token: jwt.sign(user, secret, {
-      algorithm: "HS256",
-      expiresIn: "8h",
-      issuer: "cores-fragrancias-api",
-      audience: "cores-fragrancias-web",
-      subject: String(user.id),
-    }),
+    token: jwt.sign(
+      {
+        ...user,
+        session_version: u.session_version,
+      },
+      secret,
+      {
+        algorithm: "HS256",
+        expiresIn: "8h",
+        issuer: "cores-fragrancias-api",
+        audience: "cores-fragrancias-web",
+        subject: String(user.id),
+      },
+    ),
   });
 });
-app.get("/api/me", auth(), (req, res) =>
+app.get("/api/me", auth(), async (req, res) =>
   res.json(
-    safeUser(db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id)),
+    safeUser(
+      await db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id),
+    ),
   ),
 );
-app.get("/api/users/:id/image", (req, res) => {
-  const x = db
+app.get("/api/users/:id/image", async (req, res) => {
+  const x = await db
     .prepare("SELECT profile_image FROM users WHERE id=?")
     .get(req.params.id);
   if (!x?.profile_image) return res.sendStatus(404);
-  res.type("image/jpeg").send(x.profile_image);
+  res
+    .type(x.profile_image[0] === 0x89 ? "image/png" : "image/jpeg")
+    .send(x.profile_image);
 });
-app.put("/api/me/image", auth(), upload.single("image"), (req, res) => {
-  if (!req.file) return res.status(400).json({ error: "Selecione uma imagem" });
-  db.prepare("UPDATE users SET profile_image=? WHERE id=?").run(
-    req.file.buffer,
-    req.user.id,
-  );
+app.put("/api/me/image", auth(), upload.single("image"), async (req, res) => {
+  if (!req.file || !["image/png", "image/jpeg"].includes(req.file.mimetype))
+    return res.status(400).json({
+      error: "Envie uma imagem PNG ou JPEG",
+    });
+  await db
+    .prepare("UPDATE users SET profile_image=? WHERE id=?")
+    .run(req.file.buffer, req.user.id);
   res.json(
-    safeUser(db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id)),
+    safeUser(
+      await db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id),
+    ),
   );
 });
 app.put(
   "/api/users/:id/image",
   auth(["admin"]),
   upload.single("image"),
-  (req, res) => {
+  async (req, res) => {
     if (!req.file || !["image/png", "image/jpeg"].includes(req.file.mimetype))
-      return res.status(400).json({ error: "Envie uma imagem PNG ou JPEG" });
+      return res.status(400).json({
+        error: "Envie uma imagem PNG ou JPEG",
+      });
     const id = Number(req.params.id);
-    const result = db
+    const result = await db
       .prepare("UPDATE users SET profile_image=? WHERE id=?")
       .run(req.file.buffer, id);
     if (!result.changes)
-      return res.status(404).json({ error: "Usuário não encontrado" });
-    res.json({ ok: true });
+      return res.status(404).json({
+        error: "Usuário não encontrado",
+      });
+    res.json({
+      ok: true,
+    });
   },
 );
-
-app.get("/api/products", auth(), (req, res) => {
-  let rows = db.prepare("SELECT * FROM products ORDER BY id DESC").all();
-  const q = (req.query.q || "").toLowerCase();
+app.get("/api/products", auth(), async (req, res) => {
+  let rows = await db
+    .prepare(
+      "SELECT id,name,brand,style,type,price,quantity,expiration_date,CASE WHEN length(image)>0 THEN 1 ELSE 0 END image FROM products ORDER BY id DESC",
+    )
+    .all();
+  const q = clean(req.query.q, 200).toLowerCase();
   if (q)
     rows = rows.filter((p) =>
       [p.id, p.name, p.brand, p.style, p.type].some((v) =>
@@ -347,20 +503,22 @@ app.get("/api/products", auth(), (req, res) => {
     );
   res.json(rows.map(productJson));
 });
-app.get("/api/products/:id/image", (req, res) => {
-  const x = db
+app.get("/api/products/:id/image", async (req, res) => {
+  const x = await db
     .prepare("SELECT image FROM products WHERE id=?")
     .get(req.params.id);
   if (!x?.image) return res.sendStatus(404);
-  res.type("image/jpeg").send(x.image);
+  res.type(x.image[0] === 0x89 ? "image/png" : "image/jpeg").send(x.image);
 });
 app.post(
   "/api/products",
   auth(["admin", "funcionario"]),
   upload.single("image"),
-  (req, res) => {
-    const b = req.body;
-    const result = db
+  async (req, res) => {
+    const b = productInput(req.body);
+    if (req.file && !["image/png", "image/jpeg"].includes(req.file.mimetype))
+      throw inputError("Envie uma imagem PNG ou JPEG");
+    const result = await db
       .prepare(
         "INSERT INTO products(name,brand,style,type,price,quantity,expiration_date,image) VALUES(?,?,?,?,?,?,?,?)",
       )
@@ -374,63 +532,120 @@ app.post(
         b.expiration_date,
         req.file?.buffer || null,
       );
-    res.status(201).json({ id: Number(result.lastInsertRowid) });
+    res.status(201).json({
+      id: Number(result.lastInsertRowid),
+    });
   },
 );
 app.put(
   "/api/products/:id",
   auth(["admin", "funcionario"]),
   upload.single("image"),
-  (req, res) => {
-    const b = req.body;
-    if (req.file)
-      db.prepare(
-        "UPDATE products SET name=?,brand=?,style=?,type=?,price=?,quantity=?,expiration_date=?,image=? WHERE id=?",
-      ).run(
-        b.name,
-        b.brand,
-        b.style,
-        b.type,
-        +b.price,
-        +b.quantity,
-        b.expiration_date,
-        req.file.buffer,
-        req.params.id,
-      );
-    else
-      db.prepare(
-        "UPDATE products SET name=?,brand=?,style=?,type=?,price=?,quantity=?,expiration_date=? WHERE id=?",
-      ).run(
-        b.name,
-        b.brand,
-        b.style,
-        b.type,
-        +b.price,
-        +b.quantity,
-        b.expiration_date,
-        req.params.id,
-      );
-    res.json({ ok: true });
+  async (req, res) => {
+    const b = productInput(req.body);
+    if (req.file && !["image/png", "image/jpeg"].includes(req.file.mimetype))
+      throw inputError("Envie uma imagem PNG ou JPEG");
+    await db.transaction(async () => {
+      const existing = await db
+        .prepare("SELECT quantity FROM products WHERE id=?")
+        .get(req.params.id);
+      if (!existing) throw inputError("Produto não encontrado", 404);
+      if (
+        req.body.original_quantity != null &&
+        Number(req.body.original_quantity) !== existing.quantity
+      )
+        throw inputError(
+          "O estoque deste produto mudou. Feche a edição e atualize a lista antes de salvar.",
+          409,
+        );
+      if (req.file)
+        await db
+          .prepare(
+            "UPDATE products SET name=?,brand=?,style=?,type=?,price=?,quantity=?,expiration_date=?,image=? WHERE id=?",
+          )
+          .run(
+            b.name,
+            b.brand,
+            b.style,
+            b.type,
+            +b.price,
+            +b.quantity,
+            b.expiration_date,
+            req.file.buffer,
+            req.params.id,
+          );
+      else
+        await db
+          .prepare(
+            "UPDATE products SET name=?,brand=?,style=?,type=?,price=?,quantity=?,expiration_date=? WHERE id=?",
+          )
+          .run(
+            b.name,
+            b.brand,
+            b.style,
+            b.type,
+            +b.price,
+            +b.quantity,
+            b.expiration_date,
+            req.params.id,
+          );
+      if (b.quantity !== existing.quantity)
+        await db
+          .prepare(
+            "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id) VALUES(?,'AJUSTE',?,?,?,'Ajuste na edição do produto',?)",
+          )
+          .run(
+            req.params.id,
+            b.quantity - existing.quantity,
+            existing.quantity,
+            b.quantity,
+            req.user.id,
+          );
+    })();
+    res.json({
+      ok: true,
+    });
   },
 );
-app.delete("/api/products/:id", auth(["admin"]), (req, res) => {
-  const used = db
-    .prepare("SELECT 1 FROM sales WHERE product_id=? LIMIT 1")
-    .get(req.params.id);
+app.delete("/api/products/:id", auth(["admin"]), async (req, res) => {
+  const used = await db
+    .prepare(
+      "SELECT 1 FROM sales WHERE product_id=? UNION ALL SELECT 1 FROM stock_movements WHERE product_id=? LIMIT 1",
+    )
+    .get(req.params.id, req.params.id);
   if (used)
-    return res
-      .status(409)
-      .json({ error: "Produto possui vendas e não pode ser excluído" });
-  db.prepare("DELETE FROM products WHERE id=?").run(req.params.id);
-  res.json({ ok: true });
+    return res.status(409).json({
+      error: "Produto possui vendas ou movimentações e não pode ser excluído",
+    });
+  const result = await db
+    .prepare("DELETE FROM products WHERE id=?")
+    .run(req.params.id);
+  if (!result.changes)
+    return res.status(404).json({
+      error: "Produto não encontrado",
+    });
+  res.json({
+    ok: true,
+  });
 });
-const sell = db.transaction((data, userId) => {
-  const p = db.prepare("SELECT * FROM products WHERE id=?").get(data.productId),
-    method = db
+const sell = db.transaction(async (data, userId) => {
+  const p = await db
+      .prepare("SELECT * FROM products WHERE id=?")
+      .get(data.productId),
+    method = await db
       .prepare("SELECT * FROM payment_methods WHERE id=? AND active=1")
       .get(data.paymentMethodId);
   if (!p) throw new Error("Produto não encontrado");
   if (!method) throw new Error("Forma de pagamento inválida ou desativada");
+  if (
+    data.customerId &&
+    !(await db
+      .prepare("SELECT 1 FROM users WHERE id=? AND role='cliente'")
+      .get(data.customerId))
+  )
+    throw inputError("Cliente inválido");
+  if (!Number.isFinite(p.price) || p.price < 0)
+    throw inputError("Corrija o preço do produto antes de vender");
   if (data.quantity < 1 || p.quantity < data.quantity)
     throw new Error("Estoque insuficiente");
   if (method.requires_reference && !data.reference)
@@ -444,13 +659,12 @@ const sell = db.transaction((data, userId) => {
     throw new Error("Valor recebido é menor que o total");
   const change =
       method.code === "01" ? Number((received - total).toFixed(2)) : 0,
-    orderNumber = `PED-${Date.now().toString().slice(-8)}`;
+    orderNumber = `PED-${randomUUID()}`;
   const previousQuantity = p.quantity;
-  db.prepare("UPDATE products SET quantity=quantity-? WHERE id=?").run(
-    data.quantity,
-    data.productId,
-  );
-  const r = db
+  await db
+    .prepare("UPDATE products SET quantity=quantity-? WHERE id=?")
+    .run(data.quantity, data.productId);
+  const r = await db
     .prepare(
       "INSERT INTO sales(product_id,quantity,total_value,user_id,customer_id,payment_method,order_number,order_status,payment_code,transaction_reference,installments,amount_received,change_amount,fiscal_document,fiscal_key) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
     )
@@ -471,18 +685,20 @@ const sell = db.transaction((data, userId) => {
       data.fiscalDocument || null,
       data.fiscalKey || null,
     );
-  db.prepare(
-    "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id,sale_id) VALUES(?,?,?,?,?,?,?,?)",
-  ).run(
-    p.id,
-    "VENDA",
-    -data.quantity,
-    previousQuantity,
-    previousQuantity - data.quantity,
-    `Venda ${orderNumber}`,
-    userId,
-    Number(r.lastInsertRowid),
-  );
+  await db
+    .prepare(
+      "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id,sale_id) VALUES(?,?,?,?,?,?,?,?)",
+    )
+    .run(
+      p.id,
+      "VENDA",
+      -data.quantity,
+      previousQuantity,
+      previousQuantity - data.quantity,
+      `Venda ${orderNumber}`,
+      userId,
+      Number(r.lastInsertRowid),
+    );
   return {
     id: Number(r.lastInsertRowid),
     total,
@@ -490,12 +706,18 @@ const sell = db.transaction((data, userId) => {
     order_number: orderNumber,
   };
 });
-app.post("/api/sales", auth(["admin", "funcionario"]), (req, res) => {
+app.post("/api/sales", auth(["admin", "funcionario"]), async (req, res) => {
   try {
     const b = req.body || {},
       data = {
         productId: Number(b.product_id),
-        customerId: Number(b.customer_id) || null,
+        customerId:
+          b.customer_id == null || b.customer_id === ""
+            ? null
+            : numberValue(b.customer_id, "Cliente", {
+                integer: true,
+                min: 1,
+              }),
         quantity: Number(b.quantity),
         paymentMethodId: Number(b.payment_method_id),
         reference: clean(b.transaction_reference, 100),
@@ -510,196 +732,261 @@ app.post("/api/sales", auth(["admin", "funcionario"]), (req, res) => {
       };
     if (!Number.isInteger(data.productId) || !Number.isInteger(data.quantity))
       throw new Error("Dados da venda inválidos");
-    res.status(201).json(sell(data, req.user.id));
+    numberValue(data.installments, "Parcelas", {
+      integer: true,
+      min: 1,
+      max: 24,
+    });
+    if (data.amountReceived !== null)
+      numberValue(data.amountReceived, "Valor recebido", {
+        max: 1e15,
+      });
+    if (
+      data.status &&
+      !["Concluído", "Pago", "Pendente", "Em separação"].includes(data.status)
+    )
+      throw inputError("Situação do pedido inválida");
+    res.status(201).json(await sell(data, req.user.id));
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    res.status(400).json({
+      error: e.message,
+    });
   }
 });
-app.get("/api/sales", auth(["admin", "funcionario"]), (req, res) =>
+app.get("/api/sales", auth(["admin", "funcionario"]), async (req, res) =>
   res.json(
-    db
+    await db
       .prepare(
         "SELECT s.*,p.name product_name,u.name user_name,c.name customer_name FROM sales s LEFT JOIN products p ON p.id=s.product_id LEFT JOIN users u ON u.id=s.user_id LEFT JOIN users c ON c.id=s.customer_id ORDER BY sale_date DESC",
       )
       .all(),
   ),
 );
-app.post("/api/sales/:id/cancel", auth(["admin"]), (req, res) => {
+app.post("/api/sales/:id/cancel", auth(["admin"]), async (req, res) => {
   try {
-    const result = db.transaction(() => {
-      const sale = db
+    const result = await db.transaction(async () => {
+      const sale = await db
         .prepare("SELECT * FROM sales WHERE id=?")
         .get(req.params.id);
       if (!sale) throw new Error("Venda não encontrada");
       if (sale.order_status === "Cancelado")
         throw new Error("Venda já cancelada");
-      const product = db
+      const product = await db
         .prepare("SELECT id,quantity FROM products WHERE id=?")
         .get(sale.product_id);
       if (!product) throw new Error("Produto da venda não encontrado");
       const nextQuantity = product.quantity + sale.quantity;
-      db.prepare("UPDATE products SET quantity=? WHERE id=?").run(
-        nextQuantity,
-        product.id,
-      );
-      db.prepare("UPDATE sales SET order_status='Cancelado' WHERE id=?").run(
-        sale.id,
-      );
-      db.prepare(
-        "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id,sale_id) VALUES(?,?,?,?,?,?,?,?)",
-      ).run(
-        product.id,
-        "CANCELAMENTO",
-        sale.quantity,
-        product.quantity,
-        nextQuantity,
-        clean(req.body?.reason, 200) ||
-          `Cancelamento da venda ${sale.order_number || sale.id}`,
-        req.user.id,
-        sale.id,
-      );
-      return { ok: true, stock: nextQuantity };
+      await db
+        .prepare("UPDATE products SET quantity=? WHERE id=?")
+        .run(nextQuantity, product.id);
+      await db
+        .prepare("UPDATE sales SET order_status='Cancelado' WHERE id=?")
+        .run(sale.id);
+      await db
+        .prepare(
+          "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id,sale_id) VALUES(?,?,?,?,?,?,?,?)",
+        )
+        .run(
+          product.id,
+          "CANCELAMENTO",
+          sale.quantity,
+          product.quantity,
+          nextQuantity,
+          clean(req.body?.reason, 200) ||
+            `Cancelamento da venda ${sale.order_number || sale.id}`,
+          req.user.id,
+          sale.id,
+        );
+      return {
+        ok: true,
+        stock: nextQuantity,
+      };
     })();
     res.json(result);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({
+      error: error.message,
+    });
   }
 });
-app.get("/api/stock-movements", auth(["admin", "funcionario"]), (_req, res) =>
-  res.json(
-    db
-      .prepare(
-        `SELECT m.*,p.name product_name,u.name user_name
+app.get(
+  "/api/stock-movements",
+  auth(["admin", "funcionario"]),
+  async (_req, res) =>
+    res.json(
+      await db
+        .prepare(
+          `SELECT m.*,p.name product_name,u.name user_name
            FROM stock_movements m
            JOIN products p ON p.id=m.product_id
            LEFT JOIN users u ON u.id=m.user_id
            ORDER BY m.id DESC LIMIT 200`,
-      )
-      .all(),
-  ),
-);
-app.post("/api/stock-movements", auth(["admin", "funcionario"]), (req, res) => {
-  try {
-    const productId = Number(req.body?.product_id),
-      amount = Number(req.body?.quantity),
-      type = String(req.body?.movement_type || "").toUpperCase(),
-      reason = clean(req.body?.reason, 200);
-    if (!Number.isInteger(amount) || amount < 1)
-      throw new Error("Informe uma quantidade inteira maior que zero");
-    if (!["ENTRADA", "SAIDA", "AJUSTE"].includes(type))
-      throw new Error("Tipo de movimentação inválido");
-    if (reason.length < 3) throw new Error("Informe o motivo da movimentação");
-    const result = db.transaction(() => {
-      const product = db
-        .prepare("SELECT id,quantity FROM products WHERE id=?")
-        .get(productId);
-      if (!product) throw new Error("Produto não encontrado");
-      const delta = type === "SAIDA" ? -amount : amount,
-        nextQuantity = product.quantity + delta;
-      if (nextQuantity < 0)
-        throw new Error("Estoque insuficiente para esta saída");
-      db.prepare("UPDATE products SET quantity=? WHERE id=?").run(
-        nextQuantity,
-        product.id,
-      );
-      const movement = db
-        .prepare(
-          "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id) VALUES(?,?,?,?,?,?,?)",
         )
-        .run(
-          product.id,
-          type,
-          delta,
-          product.quantity,
-          nextQuantity,
-          reason,
-          req.user.id,
-        );
-      return { id: Number(movement.lastInsertRowid), stock: nextQuantity };
-    })();
-    res.status(201).json(result);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-app.get("/api/payment-methods", auth(["admin", "funcionario"]), (_req, res) =>
-  res.json(
-    db.prepare("SELECT * FROM payment_methods ORDER BY active DESC,code").all(),
-  ),
+        .all(),
+    ),
 );
-app.put("/api/payment-methods/:id", auth(["admin"]), (req, res) => {
+app.post(
+  "/api/stock-movements",
+  auth(["admin", "funcionario"]),
+  async (req, res) => {
+    try {
+      const productId = Number(req.body?.product_id),
+        amount = Number(req.body?.quantity),
+        type = String(req.body?.movement_type || "").toUpperCase(),
+        reason = clean(req.body?.reason, 200);
+      if (!Number.isInteger(amount) || amount < 1)
+        throw new Error("Informe uma quantidade inteira maior que zero");
+      if (!["ENTRADA", "SAIDA", "AJUSTE"].includes(type))
+        throw new Error("Tipo de movimentação inválido");
+      if (reason.length < 3)
+        throw new Error("Informe o motivo da movimentação");
+      const result = await db.transaction(async () => {
+        const product = await db
+          .prepare("SELECT id,quantity FROM products WHERE id=?")
+          .get(productId);
+        if (!product) throw new Error("Produto não encontrado");
+        const delta = type === "SAIDA" ? -amount : amount,
+          nextQuantity = product.quantity + delta;
+        if (nextQuantity < 0)
+          throw new Error("Estoque insuficiente para esta saída");
+        numberValue(nextQuantity, "Saldo de estoque", {
+          integer: true,
+        });
+        await db
+          .prepare("UPDATE products SET quantity=? WHERE id=?")
+          .run(nextQuantity, product.id);
+        const movement = await db
+          .prepare(
+            "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id) VALUES(?,?,?,?,?,?,?)",
+          )
+          .run(
+            product.id,
+            type,
+            delta,
+            product.quantity,
+            nextQuantity,
+            reason,
+            req.user.id,
+          );
+        return {
+          id: Number(movement.lastInsertRowid),
+          stock: nextQuantity,
+        };
+      })();
+      res.status(201).json(result);
+    } catch (error) {
+      res.status(400).json({
+        error: error.message,
+      });
+    }
+  },
+);
+app.get(
+  "/api/payment-methods",
+  auth(["admin", "funcionario"]),
+  async (_req, res) =>
+    res.json(
+      await db
+        .prepare("SELECT * FROM payment_methods ORDER BY active DESC,code")
+        .all(),
+    ),
+);
+app.put("/api/payment-methods/:id", auth(["admin"]), async (req, res) => {
   const id = Number(req.params.id),
     b = req.body || {},
-    method = db.prepare("SELECT * FROM payment_methods WHERE id=?").get(id);
+    method = await db
+      .prepare("SELECT * FROM payment_methods WHERE id=?")
+      .get(id);
   if (!method)
-    return res.status(404).json({ error: "Forma de pagamento não encontrada" });
+    return res.status(404).json({
+      error: "Forma de pagamento não encontrada",
+    });
   const name = clean(b.name, 80),
-    maxInstallments = Math.max(
-      1,
-      Math.min(24, Number(b.max_installments) || 1),
-    ),
+    maxInstallments = numberValue(b.max_installments, "Parcelas", {
+      integer: true,
+      min: 1,
+      max: 24,
+    }),
     instructions = clean(b.instructions, 500);
-  if (name.length < 2) return res.status(400).json({ error: "Nome inválido" });
-  db.prepare(
-    "UPDATE payment_methods SET name=?,active=?,requires_reference=?,max_installments=?,instructions=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
-  ).run(
-    name,
-    b.active ? 1 : 0,
-    b.requires_reference ? 1 : 0,
-    maxInstallments,
-    instructions,
-    id,
-  );
-  res.json({ ok: true });
+  if (name.length < 2)
+    return res.status(400).json({
+      error: "Nome inválido",
+    });
+  await db
+    .prepare(
+      "UPDATE payment_methods SET name=?,active=?,requires_reference=?,max_installments=?,instructions=?,updated_at=CURRENT_TIMESTAMP WHERE id=?",
+    )
+    .run(
+      name,
+      b.active ? 1 : 0,
+      b.requires_reference ? 1 : 0,
+      maxInstallments,
+      instructions,
+      id,
+    );
+  res.json({
+    ok: true,
+  });
 });
-app.get("/api/dashboard", auth(["admin", "funcionario"]), (req, res) => {
-  const summary = db
+app.get("/api/dashboard", auth(["admin", "funcionario"]), async (req, res) => {
+  const summary = await db
     .prepare(
       "SELECT COUNT(*) products,COALESCE(SUM(quantity),0) stock,COALESCE(SUM(price*quantity),0) stock_value FROM products",
     )
     .get();
-  const sales = db
+  const sales = await db
     .prepare(
       "SELECT COUNT(*) sales_count,COALESCE(SUM(total_value),0) revenue FROM sales WHERE COALESCE(order_status,'')<>'Cancelado'",
     )
     .get();
-  const low = db
+  const low = await db
     .prepare(
       "SELECT id,name,quantity FROM products WHERE quantity<=5 ORDER BY quantity,name LIMIT 20",
     )
     .all();
-  const chart = db
-    .prepare(
-      "SELECT substr(sale_date,1,10) date,SUM(total_value) value FROM sales WHERE COALESCE(order_status,'')<>'Cancelado' GROUP BY substr(sale_date,1,10) ORDER BY date DESC LIMIT 14",
-    )
-    .all()
-    .reverse();
-  const birthdays = db
-    .prepare(
-      "SELECT id,name,phone,email,birth_date FROM users WHERE role='cliente' AND birth_date IS NOT NULL",
-    )
-    .all()
-    .filter(
-      (x) => x.birth_date?.slice(5) === new Date().toISOString().slice(5, 10),
-    );
-  const expirationProducts = db
+  const chart = (
+    await db
+      .prepare(
+        "SELECT substr(sale_date,1,10) date,SUM(total_value) value FROM sales WHERE COALESCE(order_status,'')<>'Cancelado' GROUP BY substr(sale_date,1,10) ORDER BY date DESC LIMIT 14",
+      )
+      .all()
+  ).reverse();
+  const birthdays = (
+    await db
+      .prepare(
+        "SELECT id,name,phone,email,birth_date FROM users WHERE role='cliente' AND birth_date IS NOT NULL",
+      )
+      .all()
+  ).filter((x) => x.birth_date?.slice(5) === storeToday().slice(5));
+  const expirationProducts = await db
     .prepare(
       "SELECT id,name,quantity,expiration_date FROM products WHERE quantity>0 AND expiration_date IS NOT NULL AND expiration_date<>'' ORDER BY expiration_date,id DESC",
     )
     .all();
-  res.json({ ...summary, ...sales, low, chart, birthdays, expirationProducts });
+  res.json({
+    ...summary,
+    ...sales,
+    low,
+    chart,
+    birthdays,
+    expirationProducts,
+  });
 });
-
-app.get("/api/users", auth(["admin", "funcionario"]), (_req, res) =>
-  res.json(db.prepare("SELECT * FROM users ORDER BY name").all().map(safeUser)),
+app.get("/api/users", auth(["admin", "funcionario"]), async (_req, res) =>
+  res.json(
+    (await db.prepare("SELECT * FROM users ORDER BY name").all()).map(safeUser),
+  ),
 );
 app.post("/api/users", auth(["admin"]), async (req, res) => {
   try {
     const b = normalizeUser(req.body),
       error = validateUser(b);
-    if (error) return res.status(400).json({ error });
+    if (error)
+      return res.status(400).json({
+        error,
+      });
     const hash = await bcrypt.hash(b.password, 12);
-    const r = db
+    const r = await db
       .prepare(
         "INSERT INTO users(username,password,role,name,birth_date,email,phone,cpf,preferred_type,preferred_brand,preferred_style) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
       )
@@ -716,13 +1003,17 @@ app.post("/api/users", auth(["admin"]), async (req, res) => {
         b.preferred_brand,
         b.preferred_style,
       );
-    res.status(201).json({ id: Number(r.lastInsertRowid) });
+    res.status(201).json({
+      id: Number(r.lastInsertRowid),
+    });
   } catch (e) {
     res.status(400).json({
       error:
         e.code === "SQLITE_CONSTRAINT_UNIQUE"
           ? "Este nome de usuário já está cadastrado"
-          : "Não foi possível criar o usuário",
+          : e.status
+            ? e.message
+            : "Não foi possível criar o usuário",
     });
   }
 });
@@ -730,18 +1021,28 @@ app.put("/api/users/:id", auth(["admin"]), async (req, res) => {
   try {
     const id = Number(req.params.id);
     if (!Number.isInteger(id))
-      return res.status(400).json({ error: "Identificador inválido" });
-    const existing = db.prepare("SELECT * FROM users WHERE id=?").get(id);
+      return res.status(400).json({
+        error: "Identificador inválido",
+      });
+    const existing = await db.prepare("SELECT * FROM users WHERE id=?").get(id);
     if (!existing)
-      return res.status(404).json({ error: "Usuário não encontrado" });
+      return res.status(404).json({
+        error: "Usuário não encontrado",
+      });
     const b = normalizeUser(req.body),
       error = validateUser(b, true);
-    if (error) return res.status(400).json({ error });
+    if (error)
+      return res.status(400).json({
+        error,
+      });
     if (
       existing.role === "admin" &&
       b.role !== "admin" &&
-      db.prepare("SELECT COUNT(*) count FROM users WHERE role='admin'").get()
-        .count <= 1
+      (
+        await db
+          .prepare("SELECT COUNT(*) count FROM users WHERE role='admin'")
+          .get()
+      ).count <= 1
     )
       return res.status(400).json({
         error: "O sistema precisa manter pelo menos um administrador",
@@ -760,44 +1061,71 @@ app.put("/api/users/:id", auth(["admin"]), async (req, res) => {
     ];
     if (b.password) {
       values.push(await bcrypt.hash(b.password, 12), id);
-      db.prepare(
-        "UPDATE users SET username=?,role=?,name=?,birth_date=?,email=?,phone=?,cpf=?,preferred_type=?,preferred_brand=?,preferred_style=?,password=? WHERE id=?",
-      ).run(...values);
+      await db
+        .prepare(
+          "UPDATE users SET username=?,role=?,name=?,birth_date=?,email=?,phone=?,cpf=?,preferred_type=?,preferred_brand=?,preferred_style=?,password=?,session_version=session_version+1 WHERE id=?",
+        )
+        .run(...values);
     } else {
       values.push(id);
-      db.prepare(
-        "UPDATE users SET username=?,role=?,name=?,birth_date=?,email=?,phone=?,cpf=?,preferred_type=?,preferred_brand=?,preferred_style=? WHERE id=?",
-      ).run(...values);
+      await db
+        .prepare(
+          "UPDATE users SET username=?,role=?,name=?,birth_date=?,email=?,phone=?,cpf=?,preferred_type=?,preferred_brand=?,preferred_style=? WHERE id=?",
+        )
+        .run(...values);
     }
-    res.json({ ok: true });
+    res.json({
+      ok: true,
+    });
   } catch (e) {
     res.status(400).json({
       error:
         e.code === "SQLITE_CONSTRAINT_UNIQUE"
           ? "Este nome de usuário já está cadastrado"
-          : "Não foi possível atualizar o usuário",
+          : e.status
+            ? e.message
+            : "Não foi possível atualizar o usuário",
     });
   }
 });
-app.delete("/api/users/:id", auth(["admin"]), (req, res) => {
+app.delete("/api/users/:id", auth(["admin"]), async (req, res) => {
   const id = Number(req.params.id),
-    target = db.prepare("SELECT role FROM users WHERE id=?").get(id);
+    target = await db.prepare("SELECT role FROM users WHERE id=?").get(id);
   if (id === req.user.id)
-    return res
-      .status(400)
-      .json({ error: "Você não pode excluir seu próprio usuário" });
-  if (!target) return res.status(404).json({ error: "Usuário não encontrado" });
+    return res.status(400).json({
+      error: "Você não pode excluir seu próprio usuário",
+    });
+  if (!target)
+    return res.status(404).json({
+      error: "Usuário não encontrado",
+    });
+  if (
+    await db
+      .prepare(
+        "SELECT 1 FROM sales WHERE user_id=? OR customer_id=? UNION ALL SELECT 1 FROM stock_movements WHERE user_id=? LIMIT 1",
+      )
+      .get(id, id, id)
+  )
+    return res.status(409).json({
+      error:
+        "Este usuário possui vendas ou movimentações vinculadas e não pode ser excluído",
+    });
   if (
     target.role === "admin" &&
-    db.prepare("SELECT COUNT(*) count FROM users WHERE role='admin'").get()
-      .count <= 1
+    (
+      await db
+        .prepare("SELECT COUNT(*) count FROM users WHERE role='admin'")
+        .get()
+    ).count <= 1
   )
-    return res
-      .status(400)
-      .json({ error: "O sistema precisa manter pelo menos um administrador" });
+    return res.status(400).json({
+      error: "O sistema precisa manter pelo menos um administrador",
+    });
   try {
-    db.prepare("DELETE FROM users WHERE id=?").run(id);
-    res.json({ ok: true });
+    await db.prepare("DELETE FROM users WHERE id=?").run(id);
+    res.json({
+      ok: true,
+    });
   } catch {
     return res.status(409).json({
       error: "Este usuário possui vendas vinculadas e não pode ser excluído",
@@ -807,20 +1135,22 @@ app.delete("/api/users/:id", auth(["admin"]), (req, res) => {
 app.get(
   "/api/export/products.csv",
   auth(["admin", "funcionario"]),
-  (_req, res) => {
-    const rows = db
+  async (_req, res) => {
+    const rows = await db
       .prepare(
         "SELECT id,name nome,brand marca,style estilo,type tipo,price preco,quantity quantidade,expiration_date data_validade FROM products",
       )
       .all();
-    res.attachment("produtos.csv").send("\ufeff" + Papa.unparse(rows));
+    res
+      .attachment("produtos.csv")
+      .send("\ufeff" + Papa.unparse(rows, { escapeFormulae: true }));
   },
 );
 app.get(
   "/api/export/sales.csv",
   auth(["admin", "funcionario"]),
-  (_req, res) => {
-    const rows = db
+  async (_req, res) => {
+    const rows = await db
       .prepare(
         `SELECT s.id,s.order_number pedido,s.sale_date data,p.name produto,
           s.quantity quantidade,s.total_value total,s.payment_method pagamento,
@@ -832,16 +1162,18 @@ app.get(
          ORDER BY s.sale_date DESC`,
       )
       .all();
-    res.attachment("vendas.csv").send("\ufeff" + Papa.unparse(rows));
+    res
+      .attachment("vendas.csv")
+      .send("\ufeff" + Papa.unparse(rows, { escapeFormulae: true }));
   },
 );
 app.get(
   "/api/export/products.pdf",
   auth(["admin", "funcionario"]),
-  (_req, res) => {
-    const products = db
+  async (_req, res) => {
+    const products = await db
       .prepare(
-        `SELECT p.id,p.name,p.brand,p.style,p.type,p.price,p.quantity,p.expiration_date,COALESCE(SUM(s.quantity),0) sold_quantity FROM products p LEFT JOIN sales s ON s.product_id=p.id GROUP BY p.id ORDER BY COALESCE(p.type,'Sem tipo'),p.brand,p.name`,
+        `SELECT p.id,p.name,p.brand,p.style,p.type,p.price,p.quantity,p.expiration_date,COALESCE(SUM(CASE WHEN s.order_status='Cancelado' THEN 0 ELSE s.quantity END),0) sold_quantity FROM products p LEFT JOIN sales s ON s.product_id=p.id GROUP BY p.id ORDER BY COALESCE(p.type,'Sem tipo'),p.brand,p.name`,
       )
       .all();
     const doc = new PDFDocument({
@@ -874,18 +1206,24 @@ app.get(
       .font("Helvetica-Bold")
       .fontSize(18)
       .fillColor("#382c25")
-      .text("Cores & Fragrâncias by Berenice", { align: "center" });
+      .text("Cores & Fragrâncias by Berenice", {
+        align: "center",
+      });
     doc
       .font("Helvetica-Bold")
       .fontSize(14)
-      .text("Relatório Completo de Produtos", { align: "center" });
+      .text("Relatório Completo de Produtos", {
+        align: "center",
+      });
     doc
       .font("Helvetica")
       .fontSize(9)
       .fillColor("#6f625a")
       .text(
         `Estoque e vendas • Emitido em ${new Date().toLocaleString("pt-BR")}`,
-        { align: "center" },
+        {
+          align: "center",
+        },
       )
       .moveDown(1.4);
     let currentType = null;
@@ -907,7 +1245,9 @@ app.get(
         .font("Helvetica-Bold")
         .fontSize(9.5)
         .fillColor("#29231f")
-        .text(`#${product.id}  ${product.name}`, { continued: false });
+        .text(`#${product.id}  ${product.name}`, {
+          continued: false,
+        });
       doc
         .font("Helvetica")
         .fontSize(8.5)
@@ -942,7 +1282,11 @@ app.get(
           `Praça Pres. João Pessoa, 66 - Centro, Varginha - MG • WhatsApp +55 35 9821-3049 • Página ${i + 1} de ${range.count}`,
           38,
           805,
-          { width: 519, align: "center", lineBreak: false },
+          {
+            width: 519,
+            align: "center",
+            lineBreak: false,
+          },
         );
     }
     doc.end();
@@ -952,12 +1296,23 @@ app.post(
   "/api/import/products",
   auth(["admin", "funcionario"]),
   upload.single("file"),
-  (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "Envie um CSV" });
+  async (req, res) => {
+    if (!req.file)
+      return res.status(400).json({
+        error: "Envie um CSV",
+      });
     const parsed = Papa.parse(req.file.buffer.toString("utf8"), {
       header: true,
       skipEmptyLines: true,
     });
+    if (parsed.errors.length)
+      throw inputError(
+        "CSV inválido: confira as colunas e as aspas do arquivo",
+      );
+    if (!parsed.meta.fields?.includes("nome"))
+      throw inputError(
+        "O CSV precisa da coluna nome. Use o arquivo exportado como modelo",
+      );
     const upsert = db.prepare(
       "INSERT INTO products(id,name,brand,style,type,price,quantity,expiration_date) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,brand=excluded.brand,style=excluded.style,type=excluded.type,price=excluded.price,quantity=excluded.quantity,expiration_date=excluded.expiration_date",
     );
@@ -965,38 +1320,97 @@ app.post(
       "INSERT INTO products(name,brand,style,type,price,quantity,expiration_date) VALUES(?,?,?,?,?,?,?)",
     );
     let count = 0;
-    db.transaction(() =>
-      parsed.data.forEach((x) => {
-        if (!x.nome) return;
+    await db.transaction(async () => {
+      for (const [index, x] of parsed.data.entries()) {
+        let product;
+        try {
+          product = productInput({
+            name: x.nome,
+            brand: x.marca || "Outra",
+            style: x.estilo || "Outro",
+            type: x.tipo || "Outro",
+            price: String(x.preco ?? "").replace(",", "."),
+            quantity: x.quantidade,
+            expiration_date: x.data_validade,
+          });
+        } catch (error) {
+          throw inputError(`Linha ${index + 2}: ${error.message}`);
+        }
         const vals = [
-          x.nome,
-          x.marca || "Outra",
-          x.estilo || "Outro",
-          x.tipo || "Outro",
-          +x.preco || 0,
-          +x.quantidade || 0,
-          x.data_validade || null,
+          product.name,
+          product.brand,
+          product.style,
+          product.type,
+          product.price,
+          product.quantity,
+          product.expiration_date,
         ];
-        x.id ? upsert.run(+x.id, ...vals) : insert.run(...vals);
+        const id = x.id
+          ? numberValue(x.id, "Código do produto", {
+              integer: true,
+              min: 1,
+            })
+          : null;
+        const previous = id
+          ? await db.prepare("SELECT quantity FROM products WHERE id=?").get(id)
+          : null;
+        id ? await upsert.run(id, ...vals) : await insert.run(...vals);
+        if (previous && previous.quantity !== product.quantity)
+          await db
+            .prepare(
+              "INSERT INTO stock_movements(product_id,movement_type,quantity,previous_quantity,new_quantity,reason,user_id) VALUES(?,'AJUSTE',?,?,?,'Ajuste na importação CSV',?)",
+            )
+            .run(
+              id,
+              product.quantity - previous.quantity,
+              previous.quantity,
+              product.quantity,
+              req.user.id,
+            );
         count++;
-      }),
-    )();
-    res.json({ count, errors: parsed.errors });
+      }
+    })();
+    res.json({
+      count,
+      errors: parsed.errors,
+    });
   },
 );
-
 app.use(express.static(path.join(root, "dist")));
 app.get("/{*splat}", (req, res, next) =>
   req.path.startsWith("/api")
     ? next()
     : res.sendFile(path.join(root, "dist/index.html")),
 );
-app.use((err, _req, res, _next) =>
-  res.status(500).json({ error: err.message || "Erro interno" }),
+app.use("/api", (_req, res) =>
+  res.status(404).json({
+    error: "Rota não encontrada",
+  }),
 );
-if (!isVercel || process.env.FORCE_LISTEN === "1")
+app.use((err, _req, res, _next) => {
+  if (res.headersSent) return res.end();
+  const status =
+    err instanceof multer.MulterError
+      ? err.code === "LIMIT_FILE_SIZE"
+        ? 413
+        : 400
+      : err.status || 500;
+  res.status(status).json({
+    error:
+      err.code === "LIMIT_FILE_SIZE"
+        ? "Arquivo excede o limite de 4 MB"
+        : status < 500
+          ? err.message
+          : "Não foi possível concluir a operação",
+  });
+});
+if (
+  (!isVercel || process.env.FORCE_LISTEN === "1") &&
+  process.env.NODE_ENV !== "test"
+)
   app.listen(process.env.PORT || 3001, () =>
-    console.log("API em http://localhost:3001"),
+    console.log(`Aplicação em http://localhost:${process.env.PORT || 3001}`),
   );
-
 export default app;
+export const testDatabase = db.native;
+export { db as database };

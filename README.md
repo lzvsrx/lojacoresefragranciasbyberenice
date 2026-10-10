@@ -1,38 +1,168 @@
-# Cores & Fragrâncias by Berenice
+﻿# Cores & Fragrâncias by Berenice
 
-Sistema completo de vendas, catálogo e controle de estoque migrado para React + Node.js.
+Sistema de catálogo, vendas e estoque com React, API Node.js e banco SQLite local ou Turso remoto.
 
-## Executar em desenvolvimento
+Este documento reúne as funcionalidades e correções implementadas até agora. **A execução local foi validada; o banco Turso ainda precisa ser criado e conectado à Vercel para permitir gravações permanentes no site publicado.**
 
-Requer Node.js 22.12 ou superior (recomendado: Node.js 24).
+## Funcionalidades
+
+- Login com permissões para administrador, funcionário e cliente.
+- Painel de faturamento, vendas, estoque baixo, aniversariantes e validade.
+- Cadastro, edição, pesquisa e imagens de produtos.
+- Novos produtos primeiro na lista, com atualização após o cadastro.
+- Catálogo responsivo, categorias e identificação da validade.
+- Pedidos e vendas com validação de pagamento, parcelas e estoque.
+- Cancelamento administrativo com devolução de estoque uma única vez.
+- Entradas, saídas e ajustes com motivo, responsável e saldos anterior e novo.
+- Gestão de clientes e equipe, preferências, aniversários e foto de perfil.
+- Importação e exportação de produtos em CSV, exportação de vendas e relatórios PDF.
+- Configuração de formas de pagamento e parcelamento.
+- Backup consistente do SQLite e migração para Turso.
+
+Pagamentos e referências fiscais são registros internos. O projeto não realiza cobrança por operadora nem emissão fiscal automática.
+
+## Tecnologias
+
+Requer **Node.js 22.12 ou superior**; recomendado: Node.js 24.
+
+As dependências foram atualizadas. As versões declaradas incluem React 19.3, Vite 8.3, Express 5.3, better-sqlite3 13 e cliente libSQL 0.18. O `package-lock.json` registra as versões instaladas.
+
+## Instalar e abrir
+
+Na pasta do projeto:
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Abra `http://localhost:5173`. A API é executada em `http://localhost:3001`.
+Abra **http://localhost:5173**. A API fica em **http://localhost:3001**.
 
-## Executar em produção
+Para executar a versão compilada:
 
 ```bash
 npm run build
 npm start
 ```
 
-Abra `http://localhost:3001`.
+Abra **http://localhost:3001**. Mantenha o servidor ligado: abrir `dist/index.html` diretamente não inicia a API nem o banco.
 
-## Alertas de validade
+No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd` nos mesmos comandos, como `npm.cmd run dev`.
 
-O painel e a lista de produtos mostram um resumo dos itens em estoque vencidos ou próximos do vencimento. A lista e o catálogo também identificam cada produto com **Vencido** ou **Quase vencendo**.
+### Acesso inicial
 
-- **Vencido:** a data de validade já passou.
-- **Quase vencendo:** vence hoje ou nos próximos 30 dias.
-- Produtos sem data de validade não recebem um alerta automático.
+O banco de exemplo usa usuário `admin` e senha `admin123`. Troque a senha antes de disponibilizar a loja. Um banco operacional existente mantém seus próprios usuários e senhas. Os campos de login não vêm preenchidos na interface.
 
-As datas seguem o calendário de São Paulo e os alertas são recalculados automaticamente enquanto a página permanece aberta. Novos produtos aparecem primeiro na lista.
+## Variáveis de ambiente
 
-## Validação
+O servidor lê `.env` automaticamente. Use `.env.example` como referência e substitua a chave de exemplo antes de publicar.
+
+| Variável             | Finalidade                                       |
+| -------------------- | ------------------------------------------------ |
+| `PORT`               | Porta do servidor; padrão `3001`.                |
+| `JWT_SECRET`         | Chave das sessões; obrigatória com banco remoto. |
+| `TURSO_DATABASE_URL` | Endereço do Turso. Vazio usa SQLite local.       |
+| `TURSO_AUTH_TOKEN`   | Credencial de acesso ao Turso.                   |
+| `DATABASE_PATH`      | Caminho opcional do arquivo SQLite local.        |
+
+Gere uma chave aleatória com:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
+
+Não publique `.env`, tokens ou chaves. Sem `JWT_SECRET` no modo local, o servidor cria `.jwt-secret` ao lado do banco. Preserve esse arquivo para manter sessões entre reinicializações. Trocar a senha de um usuário invalida suas sessões anteriores.
+
+## Banco local, privacidade e backup
+
+O banco operacional padrão fica em `server/data/store.db`. Na primeira execução, se ele não existir, o servidor copia `server/data/store.seed.db`.
+
+A base pública contém catálogo, imagens e histórico anonimizado. Banco operacional, backups e credenciais são ignorados pelo Git. Enviar o código ao GitHub não envia os dados atuais da loja.
+
+```bash
+npm run backup
+```
+
+O comando utiliza o mecanismo de backup do SQLite, incluindo alterações em WAL, e cria uma cópia consistente em `server/data/backups/`. Guarde também uma cópia fora do computador.
+
+Com Turso configurado, esse comando continua copiando **o arquivo local**. O banco remoto precisa de backup pelo serviço Turso.
+
+`npm run create-seed` recria a base pública a partir dos dados locais, removendo informações pessoais, redefinindo o administrador de exemplo e desativando as demais credenciais. Use apenas ao preparar uma base para distribuição.
+
+## Ativar o banco permanente na Vercel
+
+O armazenamento local das funções da Vercel é temporário; consulte a [documentação sobre SQLite na Vercel](https://vercel.com/kb/guide/is-sqlite-supported-in-vercel). Sem banco remoto, a aplicação publicada permite consulta e login, mas bloqueia cadastros, alterações e vendas e mostra um aviso na interface.
+
+**Pendente:** criar o Turso e configurar as credenciais na hospedagem. O suporte e o comando de migração estão implementados; a conexão real em produção ainda não foi validada.
+
+1. Conecte um banco **Turso vazio** pelo [Marketplace da Vercel](https://vercel.com/marketplace/tursocloud).
+2. Configure `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` e uma chave própria `JWT_SECRET` na Vercel para o ambiente desejado.
+3. Pause cadastros e vendas e pare o servidor local. Execute `npm run backup` antes de migrar.
+4. Coloque as mesmas três variáveis no `.env` local e execute `npm run migrate:cloud`.
+5. Após concluir, publique novamente na Vercel e reinicie o projeto local. Ambos usarão o mesmo banco remoto.
+
+A migração copia produtos, imagens, usuários e histórico, confere as contagens e mantém uma cópia da origem em `server/data/backups/`. Se houver interrupção, execute novamente para retomar a mesma cópia. O comando recusa sobrescrever um destino já ativado. A aplicação não abre um banco marcado com migração incompleta.
+
+Alterações feitas somente no SQLite depois da cópia não são sincronizadas automaticamente com o Turso. Mantenha as gravações pausadas até os dois ambientes apontarem para o banco remoto.
+
+## Validade e ordem dos produtos
+
+- **Vencido:** validade anterior à data de hoje.
+- **Quase vencendo:** vence hoje ou nos próximos 30 dias, incluindo o último dia.
+- Sem validade cadastrada, não há alerta automático.
+
+O cálculo usa o calendário de São Paulo. Os avisos são recalculados a cada minuto e quando a página volta a ficar visível. O resumo considera produtos em estoque; a lista e o catálogo identificam a validade de cada item.
+
+Os produtos aparecem pelo identificador de cadastro, do mais recente para o mais antigo. Ao cadastrar um produto, a pesquisa é limpa para mostrar o novo item.
+
+## Correções implementadas
+
+- Login: oito falhas por usuário normalizado e IP em 15 minutos; acessos bem-sucedidos não consomem a cota.
+- API: 500 requisições por 15 minutos, com login e leitura de imagens fora da contagem para evitar bloqueio ao carregar o catálogo.
+- Validação de preços, quantidades inteiras, datas, parcelas, clientes e formas de pagamento no servidor.
+- Transações para vendas, cancelamentos, estoque e importações, com testes de operações concorrentes.
+- Recusa de edições com quantidade desatualizada, evitando sobrescrever movimentações recentes; a interface atualiza a lista para nova tentativa.
+- Registro de ajustes de estoque ao alterar quantidades por edição ou CSV.
+- Proteção contra exclusão de produtos e usuários vinculados ao histórico.
+- Recuperação de referências antigas a produtos apagados como `Produto histórico #código`, com estoque zero, preservando vendas sem inventar saldo.
+- Bloqueio de novos envios de formulário enquanto uma gravação está em andamento.
+- Mensagens de falha de carregamento com opção de tentar novamente.
+- Imagens PNG e JPEG de até 4 MB, validadas antes do envio e no servidor.
+- Listagem sem carregar todos os arquivos de imagem na memória.
+- Erros padronizados sem exposição de detalhes internos do banco.
+- Relatórios de quantidade vendida desconsideram vendas canceladas.
+
+Os limites de requisição protegem a API e não representam um limite de usuários cadastrados.
+
+## Importação e exportação CSV
+
+Exporte os produtos para obter o modelo das colunas. A importação aceita datas `AAAA-MM-DD` ou `DD/MM/AAAA` e decimais com vírgula, respeitando as aspas e separadores do CSV.
+
+Nome é obrigatório. Preços negativos, quantidades fracionadas e datas inválidas são recusados. Uma linha inválida desfaz toda a importação. IDs existentes permitem atualizar produtos, registrando ajustes de estoque.
+
+Exportações de produtos e vendas protegem células que poderiam ser interpretadas como fórmulas por planilhas.
+
+## Comandos
+
+| Comando                 | Finalidade                                     |
+| ----------------------- | ---------------------------------------------- |
+| `npm ci`                | Instalar conforme o lockfile.                  |
+| `npm run dev`           | Iniciar API e interface em desenvolvimento.    |
+| `npm run server`        | Iniciar somente a API com reinício automático. |
+| `npm run client`        | Iniciar somente o Vite.                        |
+| `npm run build`         | Gerar a interface em `dist/`.                  |
+| `npm start`             | Servir API e interface compilada.              |
+| `npm test`              | Executar os testes automatizados.              |
+| `npm run backup`        | Copiar o SQLite local de forma consistente.    |
+| `npm run migrate:cloud` | Migrar a cópia local para Turso.               |
+| `npm run create-seed`   | Recriar a base pública anonimizada.            |
+| `npm audit`             | Verificar vulnerabilidades conhecidas.         |
+
+## Validações realizadas
+
+A suíte local passou com **18 testes**, cobrindo autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração e bloqueio de gravações na Vercel sem banco persistente.
+
+Também foram verificados a compilação, os fluxos principais em navegador e o comportamento responsivo. A auditoria de dependências não apontou vulnerabilidades na verificação realizada; reavalie esse resultado ao atualizar o projeto.
 
 ```bash
 npm test
@@ -40,30 +170,24 @@ npm run build
 npm audit
 ```
 
-## Acesso inicial
+Os testes usam bancos temporários isolados. O adaptador libSQL foi testado com o cliente oficial em arquivo local; isso não substitui a validação de um Turso real.
 
-- Usuário: `admin`
-- Senha: `admin123`
+O workflow `.github/workflows/ci.yml` está configurado para instalação, testes, compilação e auditoria de vulnerabilidades altas, com Node.js 22 e 24, em pushes para `main` e pull requests. Consulte o resultado das execuções na aba Actions do repositório.
 
-Troque a senha pelo painel de usuários após o primeiro acesso.
+## Estrutura
 
-## Recursos
-
-- autenticação e permissões para administrador, funcionário e cliente;
-- dashboard de faturamento, vendas, estoque baixo e aniversariantes;
-- cadastro, edição, busca e exclusão segura de produtos;
-- imagens originais do projeto, incluindo imagens armazenadas no SQLite;
-- PDV com baixa transacional e validação de estoque;
-- histórico de vendas;
-- entradas, saídas e ajustes de estoque com motivo, responsável e saldo anterior/novo;
-- cancelamento administrativo de vendas com devolução transacional ao estoque;
-- exportação do histórico de vendas em CSV;
-- gestão de equipe e clientes com preferências e foto de perfil;
-- catálogo responsivo para clientes;
-- importação e exportação de produtos em CSV.
-
-O banco migrado está em `server/data/store.db`. Faça cópias de segurança desse arquivo regularmente.
-
-## Banco de dados e privacidade
-
-O repositório inclui `server/data/store.seed.db`, com o catálogo, as imagens e um histórico comercial anonimizado, sem dados pessoais de clientes. Na primeira execução ele é copiado automaticamente para `server/data/store.db`. O banco operacional é ignorado pelo Git para impedir a publicação acidental de clientes, vendas e senhas.
+```text
+src/                     Interface React, estilos e regras de validade
+server/index.js          API, autenticação e regras do sistema
+server/database.js       Adaptador SQLite local / libSQL remoto
+server/validation.js     Validação de entradas
+server/rate-limits.js    Limites de login e requisições
+server/*.test.js         Testes da API, banco e limites
+server/data/             Banco local e base pública
+scripts/backup.js        Backup local
+scripts/migrate-cloud.js Migração para Turso
+scripts/create-seed.js   Geração da base anonimizada
+api/index.js             Entrada da API na Vercel
+.github/workflows/ci.yml Validação automática
+dist/                    Interface gerada pelo build
+```

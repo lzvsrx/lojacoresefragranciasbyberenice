@@ -1,0 +1,68 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import Database from "better-sqlite3";
+import bcrypt from "bcryptjs";
+import { mkdtempSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
+test("Vercel without persistent storage allows reading and login but refuses writes", async (t) => {
+  const folder = mkdtempSync(path.join(tmpdir(), "corese-demo-test-"));
+  process.env.NODE_ENV = "test";
+  process.env.VERCEL = "1";
+  process.env.DATABASE_PATH = path.join(folder, "store.db");
+  delete process.env.TURSO_DATABASE_URL;
+  delete process.env.TURSO_AUTH_TOKEN;
+  const source = new Database("server/data/store.seed.db", { readonly: true });
+  const setup = new Database(process.env.DATABASE_PATH);
+  for (const row of source
+    .prepare(
+      "SELECT sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+    )
+    .all())
+    setup.exec(row.sql);
+  source.close();
+  setup
+    .prepare("INSERT INTO users(username,password,role,name) VALUES(?,?,?,?)")
+    .run("admin", bcrypt.hashSync("Admin123!", 4), "admin", "Admin Teste");
+  setup.close();
+  const { default: app, database } = await import("./index.js");
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise((resolve) => server.once("listening", resolve));
+  t.after(async () => {
+    await new Promise((resolve) => server.close(resolve));
+    database.close();
+    await rm(folder, {
+      recursive: true,
+      force: true,
+      maxRetries: 5,
+      retryDelay: 100,
+    });
+  });
+  const base = `http://127.0.0.1:${server.address().port}/api`;
+  const status = await fetch(base + "/storage-status");
+  assert.equal((await status.json()).writable, false);
+  const login = await fetch(base + "/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username: "admin", password: "Admin123!" }),
+  });
+  assert.equal(login.status, 200);
+  const { token } = await login.json();
+  const products = await fetch(base + "/products", {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(products.status, 200);
+  await products.arrayBuffer();
+  const write = await fetch(base + "/products", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  });
+  assert.equal(write.status, 503);
+  assert.match((await write.json()).error, /persistente/);
+});

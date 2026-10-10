@@ -92,6 +92,10 @@ function ExpirationAlerts({ products, today }) {
 }
 
 const API = "/api";
+const reportLoadError = (error) =>
+  window.dispatchEvent(
+    new CustomEvent("load-error", { detail: error.message }),
+  );
 const money = (v) =>
   Number(v || 0).toLocaleString("pt-BR", {
     style: "currency",
@@ -99,7 +103,9 @@ const money = (v) =>
   });
 const date = (v) => {
   if (!v) return "—";
-  const value = String(v);
+  const raw = String(v);
+  const br = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(raw);
+  const value = br ? `${br[3]}-${br[2]}-${br[1]}` : raw;
   const parsed = new Date(value.includes("T") ? value : value + "T12:00:00");
   return Number.isNaN(parsed.getTime())
     ? "—"
@@ -112,6 +118,11 @@ const STORE_ADDRESS =
 const whatsappUrl = (message) =>
   `https://wa.me/${STORE_WHATSAPP}?text=${encodeURIComponent(message)}`;
 const api = async (path, opts = {}) => {
+  if (opts.body instanceof FormData) {
+    for (const value of opts.body.values())
+      if (value instanceof File && value.size > 4 * 1024 * 1024)
+        throw new Error("Arquivo excede o limite de 4 MB");
+  }
   const token = localStorage.getItem("token");
   const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   if (!(opts.body instanceof FormData)) {
@@ -139,13 +150,15 @@ const api = async (path, opts = {}) => {
     try {
       e = await r.json();
     } catch {}
-    throw new Error(e?.error || "Não foi possível concluir");
+    throw Object.assign(new Error(e?.error || "Não foi possível concluir"), {
+      status: r.status,
+    });
   }
   return r.headers.get("content-type")?.includes("json") ? r.json() : r.blob();
 };
 
 function Login({ onLogin }) {
-  const [form, setForm] = useState({ username: "admin", password: "admin123" }),
+  const [form, setForm] = useState({ username: "", password: "" }),
     [error, setError] = useState(""),
     [loading, setLoading] = useState(false);
   const submit = async (e) => {
@@ -176,6 +189,8 @@ function Login({ onLogin }) {
           <label>
             Usuário
             <input
+              required
+              autoComplete="username"
               value={form.username}
               onChange={(e) => setForm({ ...form, username: e.target.value })}
             />
@@ -184,6 +199,8 @@ function Login({ onLogin }) {
             Senha
             <input
               type="password"
+              required
+              autoComplete="current-password"
               value={form.password}
               onChange={(e) => setForm({ ...form, password: e.target.value })}
             />
@@ -193,7 +210,7 @@ function Login({ onLogin }) {
             <LogIn size={17} /> {loading ? "Entrando…" : "Entrar no sistema"}
           </button>
         </form>
-        <small>Acesso inicial: admin / admin123</small>
+        <small>Use o acesso fornecido pelo administrador da loja.</small>
       </section>
       <aside className="login-art">
         <div>
@@ -262,8 +279,22 @@ function Shell({ user, setUser }) {
     catalog: "Catálogo",
   };
   const [page, setPage] = useState(allowed[0]);
+  const [loadError, setLoadError] = useState("");
+  const [revision, setRevision] = useState(0);
+  const [storageWarning, setStorageWarning] = useState(false);
+  useEffect(() => {
+    api("/storage-status")
+      .then((status) => setStorageWarning(!status.writable))
+      .catch(reportLoadError);
+  }, []);
+  useEffect(() => {
+    const report = (event) => setLoadError(event.detail);
+    window.addEventListener("load-error", report);
+    return () => window.removeEventListener("load-error", report);
+  }, []);
+  useEffect(() => setLoadError(""), [page]);
   const logout = () => {
-    localStorage.clear();
+    localStorage.removeItem("token");
     setUser(null);
   };
   return (
@@ -308,13 +339,34 @@ function Shell({ user, setUser }) {
       </aside>
       <section className="content">
         <Header page={labels[page]} user={user} setUser={setUser} />
-        {page === "dashboard" && <Dashboard />}
-        {page === "products" && (
-          <Products canDelete={user.role === "admin"} />
-        )}{" "}
-        {page === "users" && <Users canManage={user.role === "admin"} />}{" "}
-        {page === "payments" && <PaymentSettings />}{" "}
-        {page === "catalog" && <Catalog user={user} />}
+        {storageWarning && (
+          <div className="load-error" role="alert">
+            Cadastros e vendas estão desativados até a conexão do banco
+            permanente da loja.
+          </div>
+        )}
+        {loadError && (
+          <div className="load-error" role="alert">
+            {loadError}{" "}
+            <button
+              onClick={() => {
+                setLoadError("");
+                setRevision((value) => value + 1);
+              }}
+            >
+              Tentar novamente
+            </button>
+          </div>
+        )}
+        <React.Fragment key={`${page}-${revision}`}>
+          {page === "dashboard" && <Dashboard />}
+          {page === "products" && (
+            <Products canDelete={user.role === "admin"} />
+          )}{" "}
+          {page === "users" && <Users canManage={user.role === "admin"} />}{" "}
+          {page === "payments" && <PaymentSettings />}{" "}
+          {page === "catalog" && <Catalog user={user} />}
+        </React.Fragment>
       </section>
     </div>
   );
@@ -339,7 +391,12 @@ function Header({ page, user, setUser }) {
       <div className="header-actions">
         <label className="icon-btn" title="Trocar foto">
           <Camera size={18} />
-          <input hidden type="file" accept="image/*" onChange={upload} />
+          <input
+            hidden
+            type="file"
+            accept="image/png,image/jpeg"
+            onChange={upload}
+          />
         </label>
         <div>
           <b>Olá, {user.name?.split(" ")[0]}</b>
@@ -450,7 +507,9 @@ function Dashboard() {
   const today = useStoreToday();
   const [d, setD] = useState(null);
   useEffect(() => {
-    api("/dashboard").then((dashboard) => setD(dashboard));
+    api("/dashboard")
+      .then((dashboard) => setD(dashboard))
+      .catch(reportLoadError);
   }, []);
   if (!d) return <Loading />;
   return (
@@ -555,6 +614,7 @@ function ProductForm({ product, onClose, onSaved }) {
     [saving, setSaving] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
+    if (saving) return;
     setSaving(true);
     try {
       const f = new FormData();
@@ -562,12 +622,14 @@ function ProductForm({ product, onClose, onSaved }) {
         ([k, x]) => k !== "image_url" && x != null && f.append(k, x),
       );
       if (file) f.append("image", file);
+      if (product) f.append("original_quantity", product.quantity);
       await api(product ? `/products/${product.id}` : "/products", {
         method: product ? "PUT" : "POST",
         body: f,
       });
       onSaved();
     } catch (e) {
+      if (e.status === 409) onClose();
       alert(e.message);
     } finally {
       setSaving(false);
@@ -641,7 +703,7 @@ function ProductForm({ product, onClose, onSaved }) {
           Imagem do produto
           <input
             type="file"
-            accept="image/*"
+            accept="image/png,image/jpeg"
             onChange={(e) => setFile(e.target.files[0])}
           />
         </label>
@@ -649,7 +711,7 @@ function ProductForm({ product, onClose, onSaved }) {
           <button type="button" onClick={onClose}>
             Cancelar
           </button>
-          <button className="primary">
+          <button className="primary" disabled={saving}>
             <Save size={16} /> {saving ? "Salvando…" : "Salvar produto"}
           </button>
         </div>
@@ -664,6 +726,7 @@ function StockForm({ product, onClose, onSaved }) {
     [saving, setSaving] = useState(false);
   const submit = async (event) => {
     event.preventDefault();
+    if (saving) return;
     setSaving(true);
     try {
       await api("/stock-movements", {
@@ -773,7 +836,7 @@ function Products({ canDelete }) {
       },
     );
   useEffect(() => {
-    void load();
+    void load().catch(reportLoadError);
   }, []);
   const filtered = products.filter((x) =>
     [x.name, x.brand, x.type, x.style, x.id].some((v) =>
@@ -786,7 +849,7 @@ function Products({ canDelete }) {
     if (!confirm(`Excluir ${p.name}?`)) return;
     try {
       await api(`/products/${p.id}`, { method: "DELETE" });
-      load();
+      void load().catch(reportLoadError);
     } catch (e) {
       alert(e.message);
     }
@@ -810,7 +873,7 @@ function Products({ canDelete }) {
     try {
       const x = await api("/import/products", { method: "POST", body: f });
       alert(`${x.count} produtos importados`);
-      load();
+      void load().catch(reportLoadError);
     } catch (e) {
       alert(e.message);
     } finally {
@@ -980,11 +1043,14 @@ function Products({ canDelete }) {
       {show && (
         <ProductForm
           product={edit}
-          onClose={() => setShow(false)}
+          onClose={() => {
+            setShow(false);
+            void load().catch(reportLoadError);
+          }}
           onSaved={() => {
             setShow(false);
             if (!edit) setQ("");
-            load();
+            void load().catch(reportLoadError);
           }}
         />
       )}
@@ -994,121 +1060,11 @@ function Products({ canDelete }) {
           onClose={() => setStockProduct(null)}
           onSaved={() => {
             setStockProduct(null);
-            load();
+            void load().catch(reportLoadError);
           }}
         />
       )}
     </Card>
-  );
-}
-function Sales() {
-  const [products, setProducts] = useState([]),
-    [sales, setSales] = useState([]),
-    [selected, setSelected] = useState(),
-    [qty, setQty] = useState(1),
-    [q, setQ] = useState("");
-  const load = () =>
-    Promise.all([api("/products"), api("/sales")]).then(([p, s]) => {
-      setProducts(p);
-      setSales(s);
-      if (!selected) setSelected(p.find((x) => x.quantity > 0)?.id);
-    });
-  useEffect(() => {
-    void load();
-  }, []);
-  const p = products.find((x) => x.id === +selected);
-  const sell = async () => {
-    try {
-      const x = await api("/sales", {
-        method: "POST",
-        body: { product_id: selected, quantity: qty },
-      });
-      alert(`Venda concluída! Total: ${money(x.total)}`);
-      setQty(1);
-      load();
-    } catch (e) {
-      alert(e.message);
-    }
-  };
-  const filtered = products.filter(
-    (x) =>
-      x.quantity > 0 &&
-      [x.name, x.brand, x.id].some((v) =>
-        String(v || "")
-          .toLowerCase()
-          .includes(q.toLowerCase()),
-      ),
-  );
-  return (
-    <div className="sales-grid">
-      <Card
-        title="Ponto de venda"
-        subtitle="Selecione o produto e confirme a saída"
-      >
-        <input
-          className="search"
-          placeholder="Buscar produto…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <div className="select-products">
-          {filtered.slice(0, 30).map((x) => (
-            <button
-              key={x.id}
-              className={+selected === x.id ? "selected" : ""}
-              onClick={() => setSelected(x.id)}
-            >
-              {x.image_url ? <img src={x.image_url} /> : <span>◇</span>}
-              <div>
-                <b>{x.name}</b>
-                <small>
-                  {x.quantity} em estoque · {money(x.price)}
-                </small>
-              </div>
-            </button>
-          ))}
-        </div>
-        {p && (
-          <div className="checkout">
-            <div>
-              <span>Total da venda</span>
-              <strong>{money(p.price * qty)}</strong>
-            </div>
-            <label>
-              Quantidade
-              <input
-                type="number"
-                min="1"
-                max={p.quantity}
-                value={qty}
-                onChange={(e) =>
-                  setQty(Math.max(1, Math.min(p.quantity, +e.target.value)))
-                }
-              />
-            </label>
-            <button className="primary" onClick={sell}>
-              Confirmar venda
-            </button>
-          </div>
-        )}
-      </Card>
-      <Card title="Vendas recentes" subtitle={`${sales.length} registros`}>
-        <div className="sale-list">
-          {sales.slice(0, 15).map((s) => (
-            <div key={s.id}>
-              <span>
-                <b>{s.product_name || "Produto removido"}</b>
-                <small>
-                  {date(s.sale_date)} · {s.user_name || "Sistema"} ·{" "}
-                  {s.quantity} un.
-                </small>
-              </span>
-              <strong>{money(s.total_value)}</strong>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
   );
 }
 const blankUser = {
@@ -1137,7 +1093,8 @@ function CustomerOrders({ users, canManage }) {
     [received, setReceived] = useState(""),
     [status, setStatus] = useState("Concluído"),
     [fiscalDocument, setFiscalDocument] = useState(""),
-    [fiscalKey, setFiscalKey] = useState("");
+    [fiscalKey, setFiscalKey] = useState(""),
+    [saving, setSaving] = useState(false);
   const load = () =>
     Promise.all([
       api("/products"),
@@ -1147,13 +1104,19 @@ function CustomerOrders({ users, canManage }) {
       setProducts(p.filter((x) => x.quantity > 0));
       setSales(s);
       setMethods(m.filter((x) => x.active));
-      if (!productId && p.length)
-        setProductId(String(p.find((x) => x.quantity > 0)?.id || ""));
-      if (!methodId && m.some((x) => x.active))
-        setMethodId(String(m.find((x) => x.active).id));
+      setProductId((current) =>
+        p.some((x) => String(x.id) === current && x.quantity > 0)
+          ? current
+          : String(p.find((x) => x.quantity > 0)?.id || ""),
+      );
+      setMethodId((current) =>
+        m.some((x) => String(x.id) === current && x.active)
+          ? current
+          : String(m.find((x) => x.active)?.id || ""),
+      );
     });
   useEffect(() => {
-    void load();
+    void load().catch(reportLoadError);
   }, []);
   const exportSales = async () => {
     try {
@@ -1179,7 +1142,7 @@ function CustomerOrders({ users, canManage }) {
         method: "POST",
         body: { reason },
       });
-      load();
+      void load().catch(reportLoadError);
     } catch (error) {
       alert(error.message);
     }
@@ -1192,6 +1155,8 @@ function CustomerOrders({ users, canManage }) {
       method?.code === "01" && received ? Math.max(0, +received - total) : 0;
   const submit = async (e) => {
     e.preventDefault();
+    if (saving) return;
+    setSaving(true);
     try {
       const result = await api("/sales", {
         method: "POST",
@@ -1216,9 +1181,12 @@ function CustomerOrders({ users, canManage }) {
       setReceived("");
       setFiscalDocument("");
       setFiscalKey("");
-      load();
+      setInstallments(1);
+      void load().catch(reportLoadError);
     } catch (e) {
       alert(e.message);
+    } finally {
+      setSaving(false);
     }
   };
   const clients = users.filter((x) => x.role === "cliente"),
@@ -1386,7 +1354,10 @@ function CustomerOrders({ users, canManage }) {
             <strong>{money(total)}</strong>
           </div>
           <div className="order-actions">
-            <button className="primary" disabled={!productId || !methodId}>
+            <button
+              className="primary"
+              disabled={saving || !product || !method}
+            >
               <ShoppingCart size={17} /> Registrar pedido e venda
             </button>
             {product && (
@@ -1450,7 +1421,7 @@ function PaymentSettings() {
   const [methods, setMethods] = useState([]);
   const load = () => api("/payment-methods").then((items) => setMethods(items));
   useEffect(() => {
-    void load();
+    void load().catch(reportLoadError);
   }, []);
   const change = (id, key, value) =>
     setMethods(methods.map((x) => (x.id === id ? { ...x, [key]: value } : x)));
@@ -1461,7 +1432,7 @@ function PaymentSettings() {
         body: method,
       });
       alert("Forma de pagamento atualizada");
-      load();
+      void load().catch(reportLoadError);
     } catch (e) {
       alert(e.message);
     }
@@ -1551,23 +1522,21 @@ function Users({ canManage }) {
     [query, setQuery] = useState("");
   const load = () => api("/users").then((items) => setUsers(items));
   useEffect(() => {
-    void load();
+    void load().catch(reportLoadError);
   }, []);
   const del = async (u) => {
     if (confirm(`Excluir permanentemente ${u.name}?`))
       try {
         await api(`/users/${u.id}`, { method: "DELETE" });
-        load();
+        void load().catch(reportLoadError);
       } catch (e) {
         alert(e.message);
       }
   };
-  const today = new Date(),
+  const today = useStoreToday(),
     birthdays = users.filter(
       (x) =>
-        x.role === "cliente" &&
-        x.birth_date?.slice(5, 7) ===
-          String(today.getMonth() + 1).padStart(2, "0"),
+        x.role === "cliente" && x.birth_date?.slice(5, 7) === today.slice(5, 7),
     ),
     visible = users.filter(
       (x) =>
@@ -1731,7 +1700,7 @@ function Users({ canManage }) {
           onClose={() => setShow(false)}
           onSaved={() => {
             setShow(false);
-            load();
+            void load().catch(reportLoadError);
           }}
         />
       )}
@@ -1748,6 +1717,7 @@ function UserForm({ user, onClose, onSaved }) {
     [profileImage, setProfileImage] = useState(null);
   const submit = async (e) => {
     e.preventDefault();
+    if (saving) return;
     if (v.password !== confirmPassword) return alert("As senhas não coincidem");
     if (
       v.password &&
@@ -1796,7 +1766,7 @@ function UserForm({ user, onClose, onSaved }) {
               onChange={(e) => setProfileImage(e.target.files[0] || null)}
             />
             <small>
-              PNG ou JPEG, até 10 MB. A imagem será salva no banco de dados.
+              PNG ou JPEG, até 4 MB. A imagem será salva no banco de dados.
             </small>
           </label>
         </div>
@@ -1821,7 +1791,7 @@ function UserForm({ user, onClose, onSaved }) {
             required
             minLength="3"
             maxLength="40"
-            pattern="[A-Za-z0-9._-]+"
+            pattern="[A-Za-z0-9._\-]+"
             autoComplete="username"
             value={v.username}
             onChange={(e) => change("username", e.target.value)}
@@ -1849,14 +1819,14 @@ function UserForm({ user, onClose, onSaved }) {
             value={confirmPassword}
             onChange={(e) => setConfirmPassword(e.target.value)}
           />
-          <span className="show-password">
-            <input
-              type="checkbox"
-              checked={showPassword}
-              onChange={(e) => setShowPassword(e.target.checked)}
-            />{" "}
-            Mostrar senhas
-          </span>
+        </label>
+        <label className="show-password wide">
+          <input
+            type="checkbox"
+            checked={showPassword}
+            onChange={(e) => setShowPassword(e.target.checked)}
+          />{" "}
+          Mostrar senhas
         </label>
         <label>
           Perfil de acesso
@@ -1882,7 +1852,7 @@ function UserForm({ user, onClose, onSaved }) {
           <input
             type="date"
             min="1920-01-01"
-            max={new Date().toISOString().slice(0, 10)}
+            max={storeToday()}
             value={v.birth_date || ""}
             onChange={(e) => change("birth_date", e.target.value)}
           />
@@ -1962,7 +1932,9 @@ function Catalog() {
     [q, setQ] = useState(""),
     [type, setType] = useState("Todos");
   useEffect(() => {
-    api("/products").then((items) => setProducts(items));
+    api("/products")
+      .then((items) => setProducts(items))
+      .catch(reportLoadError);
   }, []);
   const types = [
     "Todos",
@@ -1995,7 +1967,7 @@ function Catalog() {
           onChange={(e) => setQ(e.target.value)}
         />
         <div>
-          {types.slice(0, 8).map((x) => (
+          {types.map((x) => (
             <button
               className={type === x ? "active" : ""}
               onClick={() => setType(x)}
