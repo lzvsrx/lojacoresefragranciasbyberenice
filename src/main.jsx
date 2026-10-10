@@ -935,7 +935,6 @@ function Modal({ title, onClose, children }) {
 function Products({ canDelete }) {
   const today = useStoreToday();
   const [saleProduct, setSaleProduct] = useState(null);
-  const [visibleLimit, setVisibleLimit] = useState(40);
   const [losses, setLosses] = useState({ items: [], total_cents: 0 });
   const [removingExpired, setRemovingExpired] = useState(false);
   const [products, setProducts] = useState([]),
@@ -962,7 +961,6 @@ function Products({ canDelete }) {
     () => products.filter((x) => matchesProduct(x, q)),
     [products, q],
   );
-  useEffect(() => setVisibleLimit(40), [q]);
   const expired = products.filter(
     (p) =>
       p.quantity > 0 &&
@@ -1139,7 +1137,7 @@ function Products({ canDelete }) {
             </tr>
           </thead>
           <tbody>
-            {filtered.slice(0, visibleLimit).map((p) => (
+            {filtered.map((p) => (
               <tr key={p.id}>
                 <td>
                   <div className="product-cell">
@@ -1186,7 +1184,10 @@ function Products({ canDelete }) {
                 <td className="row-actions">
                   <button
                     className="primary"
-                    disabled={p.quantity <= 0}
+                    disabled={
+                      p.quantity <= 0 ||
+                      expirationStatus(p.expiration_date, today)?.status === "expired"
+                    }
                     onClick={() => setSaleProduct(p)}
                   >
                     <ShoppingCart size={15} /> Vender
@@ -1225,14 +1226,6 @@ function Products({ canDelete }) {
         </table>
         {!filtered.length && <Empty />}
       </div>
-      {filtered.length > visibleLimit && (
-        <div className="toolbar">
-          <button onClick={() => setVisibleLimit((current) => current + 40)}>
-            Carregar mais produtos ({Math.min(visibleLimit, filtered.length)} de{" "}
-            {filtered.length})
-          </button>
-        </div>
-      )}
       <details className="stock-history">
         <summary>Histórico de movimentações ({movements.length})</summary>
         <div className="table-wrap">

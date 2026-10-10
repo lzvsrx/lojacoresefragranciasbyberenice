@@ -88,6 +88,27 @@ test("API regression suite uses an isolated database", async (t) => {
   const methods = await request("/payment-methods");
   const cash = methods.body.find((method) => method.code === "01").id;
 
+  await t.test("products returns every record newest first, including search results", async () => {
+    const ids = [];
+    for (let index = 0; index < 45; index++) {
+      const created = await request("/products", "POST", {
+        ...product, name: `Ordem de cadastro ${index}`,
+      });
+      assert.equal(created.status, 201);
+      ids.push(created.body.id);
+    }
+    try {
+      const all = await request("/products");
+      assert.equal(all.status, 200);
+      assert.deepEqual(all.body.map((item) => item.id), [...ids].reverse());
+      const searched = await request("/products?q=Ordem%20de%20cadastro");
+      assert.deepEqual(searched.body.map((item) => item.id), [...ids].reverse());
+    } finally {
+      for (const productId of ids)
+        assert.equal((await request(`/products/${productId}`, "DELETE")).status, 200);
+    }
+  });
+
   await t.test(
     "authentication, unknown routes and invalid product input",
     async () => {
