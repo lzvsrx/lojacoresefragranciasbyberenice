@@ -7,6 +7,7 @@ server/data/store.db
 server/data/.jwt-secret
 **/.jwt-secret
 server/data/backups/
+server/data/backup-keys/
 
 .vercel
 .env*
