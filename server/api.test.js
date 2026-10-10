@@ -442,6 +442,12 @@ test("API regression suite uses an isolated database", async (t) => {
       ).run(expiredId);
       const history = await request("/expiration-losses");
       assert.equal(history.body.total_cents, 3702);
+      const dashboard = await request("/dashboard");
+      assert.deepEqual(dashboard.body.expirationLosses, {
+        total_cents: 3702,
+        quantity: 3,
+        products: 1,
+      });
       assert.equal(history.body.items[0].product_name, "Vencido teste");
       assert.equal(history.body.items[0].unit_price_cents, 1234);
       assert.equal(history.body.items[0].quantity, 3);

@@ -1021,6 +1021,13 @@ app.put("/api/payment-methods/:id", auth(["admin"]), async (req, res) => {
   });
 });
 app.get("/api/dashboard", auth(["admin", "funcionario"]), async (req, res) => {
+  const expirationLosses = await db
+    .prepare(
+      `SELECT COALESCE(SUM(total_cents),0) total_cents,
+      COALESCE(SUM(quantity),0) quantity,COUNT(DISTINCT product_id) products
+      FROM expiration_losses`,
+    )
+    .get();
   const summary = await db
     .prepare(
       "SELECT COUNT(*) products,COALESCE(SUM(quantity),0) stock,COALESCE(SUM(price*quantity),0) stock_value FROM products",
@@ -1058,6 +1065,7 @@ app.get("/api/dashboard", auth(["admin", "funcionario"]), async (req, res) => {
   res.json({
     ...summary,
     ...sales,
+    expirationLosses,
     low,
     chart,
     birthdays,

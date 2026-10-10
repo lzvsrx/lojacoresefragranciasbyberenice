@@ -119,6 +119,8 @@ Os produtos aparecem pelo identificador de cadastro, do mais recente para o mais
 
 ### Retirada de vencidos e lista de perdas
 
+O painel principal mostra **Perdas por vencimento** (valor acumulado das retiradas) e **Unidades retiradas por vencimento**, com a contagem de produtos diferentes. Esses indicadores usam o histórico de baixas, não os produtos vencidos que ainda aguardam retirada, e preservam o preço registrado na baixa.
+
 Na tela **Produtos**, administradores e funcionários podem usar **Retirar vencido** em um item ou **Retirar vencidos do estoque** para todos os vencidos com saldo. A ação pede confirmação, zera o estoque e registra uma saída com motivo `Retirada por vencimento`, preservando o cadastro e o histórico.
 
 A seção **Perdas por vencimento** mostra data da retirada, produto, validade, quantidade, preço unitário, valor perdido e responsável, além do total acumulado. Os valores são estimados pelo **preço de venda cadastrado no momento da retirada**, pois o sistema não possui custo de compra. Alterações posteriores no nome ou preço não modificam a perda registrada.

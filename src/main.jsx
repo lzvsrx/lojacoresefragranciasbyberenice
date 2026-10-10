@@ -538,6 +538,20 @@ function Dashboard() {
           tone="rose"
         />
       </div>
+      <div className="stats expiration-stats">
+        <Stat
+          label="Perdas por vencimento"
+          value={money(d.expirationLosses.total_cents / 100)}
+          detail="Acumulado das retiradas · preço de venda na baixa"
+          tone="rose"
+        />
+        <Stat
+          label="Unidades retiradas por vencimento"
+          value={d.expirationLosses.quantity}
+          detail={`${d.expirationLosses.products} produtos diferentes · histórico completo`}
+          tone="rose"
+        />
+      </div>
       {d.birthdays.length > 0 && (
         <div className="birthday">
           🎂 Hoje é aniversário de {d.birthdays.map((x) => x.name).join(", ")}.
