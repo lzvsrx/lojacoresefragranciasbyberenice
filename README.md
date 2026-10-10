@@ -4,7 +4,7 @@ Sistema completo de vendas, catálogo e controle de estoque migrado para React +
 
 ## Executar em desenvolvimento
 
-Requer Node.js 20 ou superior.
+Requer Node.js 22.12 ou superior (recomendado: Node.js 24).
 
 ```bash
 npm install
@@ -21,6 +21,24 @@ npm start
 ```
 
 Abra `http://localhost:3001`.
+
+## Alertas de validade
+
+O painel e a lista de produtos mostram um resumo dos itens em estoque vencidos ou próximos do vencimento. A lista e o catálogo também identificam cada produto com **Vencido** ou **Quase vencendo**.
+
+- **Vencido:** a data de validade já passou.
+- **Quase vencendo:** vence hoje ou nos próximos 30 dias.
+- Produtos sem data de validade não recebem um alerta automático.
+
+As datas seguem o calendário de São Paulo e os alertas são recalculados automaticamente enquanto a página permanece aberta. Novos produtos aparecem primeiro na lista.
+
+## Validação
+
+```bash
+npm test
+npm run build
+npm audit
+```
 
 ## Acesso inicial
 

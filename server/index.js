@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
-import { rateLimit } from "express-rate-limit";
+import { createApiLimiter, createLoginLimiter } from "./rate-limits.js";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -184,16 +184,7 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "1mb", type: "application/json" }));
-app.use(
-  "/api",
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 500,
-    standardHeaders: "draft-8",
-    legacyHeaders: false,
-    message: { error: "Limite temporário de requisições excedido" },
-  }),
-);
+app.use("/api", createApiLimiter());
 app.use("/assets", express.static(path.join(root, "client/public/assets")));
 
 const safeUser = (u) =>
@@ -241,14 +232,7 @@ const productJson = (p) => ({
   image: undefined,
   image_url: p.image ? `/api/products/${p.id}/image` : null,
 });
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  limit: 8,
-  standardHeaders: "draft-8",
-  legacyHeaders: false,
-  skipSuccessfulRequests: true,
-  message: { error: "Muitas tentativas de acesso. Aguarde 15 minutos." },
-});
+const loginLimiter = createLoginLimiter();
 const clean = (value, max = 150) =>
   String(value ?? "")
     .trim()
@@ -351,7 +335,7 @@ app.put(
 );
 
 app.get("/api/products", auth(), (req, res) => {
-  let rows = db.prepare("SELECT * FROM products ORDER BY name").all();
+  let rows = db.prepare("SELECT * FROM products ORDER BY id DESC").all();
   const q = (req.query.q || "").toLowerCase();
   if (q)
     rows = rows.filter((p) =>
@@ -698,7 +682,12 @@ app.get("/api/dashboard", auth(["admin", "funcionario"]), (req, res) => {
     .filter(
       (x) => x.birth_date?.slice(5) === new Date().toISOString().slice(5, 10),
     );
-  res.json({ ...summary, ...sales, low, chart, birthdays });
+  const expirationProducts = db
+    .prepare(
+      "SELECT id,name,quantity,expiration_date FROM products WHERE quantity>0 AND expiration_date IS NOT NULL AND expiration_date<>'' ORDER BY expiration_date,id DESC",
+    )
+    .all();
+  res.json({ ...summary, ...sales, low, chart, birthdays, expirationProducts });
 });
 
 app.get("/api/users", auth(["admin", "funcionario"]), (_req, res) =>

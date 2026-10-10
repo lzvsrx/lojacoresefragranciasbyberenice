@@ -895,6 +895,42 @@ td {
   background: #f8dddd;
   color: #983a3a;
 }
+
+.expiration-badge {
+  display: block;
+  width: fit-content;
+  margin-top: 6px;
+}
+.expiration-alerts {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid #d8a13c;
+  border-radius: 12px;
+  background: #fff8e8;
+  color: #654515;
+}
+.expiration-alerts summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+.expiration-alerts p {
+  margin: 12px 0;
+}
+.expiration-alerts ul {
+  list-style: none;
+  padding: 0;
+  max-height: 320px;
+  overflow: auto;
+}
+.expiration-alerts li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #ead8b6;
+}
 .row-actions {
   white-space: nowrap;
 }

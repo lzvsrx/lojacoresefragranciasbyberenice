@@ -25,6 +25,71 @@ import {
   UsersRound,
 } from "lucide-react";
 import "./styles.css";
+import { expirationStatus, storeToday } from "./expiration.js";
+
+function useStoreToday() {
+  const [today, setToday] = useState(() => storeToday());
+  useEffect(() => {
+    const update = () => setToday(storeToday());
+    const timer = setInterval(update, 60000);
+    document.addEventListener("visibilitychange", update);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", update);
+    };
+  }, []);
+  return today;
+}
+
+function ExpirationBadge({ value, today }) {
+  const expiry = expirationStatus(value, today);
+  if (!expiry || expiry.status === "valid") return null;
+  return (
+    <span className={`pill ${expiry.tone} expiration-badge`}>
+      {expiry.label}
+      {expiry.days === 0
+        ? " · vence hoje"
+        : expiry.days > 0
+          ? ` · ${expiry.days} dia(s)`
+          : ""}
+    </span>
+  );
+}
+
+function ExpirationAlerts({ products, today }) {
+  const alerts = products.filter((product) => {
+    const expiry = expirationStatus(product.expiration_date, today);
+    return product.quantity > 0 && expiry && expiry.status !== "valid";
+  });
+  if (!alerts.length) return null;
+  const expired = alerts.filter(
+    (product) =>
+      expirationStatus(product.expiration_date, today).status === "expired",
+  ).length;
+  return (
+    <details className="expiration-alerts">
+      <summary>
+        Alerta de validade: {expired} vencido(s) e {alerts.length - expired}{" "}
+        quase vencendo
+      </summary>
+      <p>
+        Produtos em estoque. “Quase vencendo” indica validade nos próximos 30
+        dias, incluindo hoje.
+      </p>
+      <ul>
+        {alerts.map((product) => (
+          <li key={product.id}>
+            <span>
+              <b>{product.name}</b> · {product.quantity} un. ·{" "}
+              {date(product.expiration_date)}
+            </span>
+            <ExpirationBadge value={product.expiration_date} today={today} />
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
 
 const API = "/api";
 const money = (v) =>
@@ -85,6 +150,7 @@ function Login({ onLogin }) {
     [loading, setLoading] = useState(false);
   const submit = async (e) => {
     e.preventDefault();
+    if (loading) return;
     setLoading(true);
     setError("");
     try {
@@ -123,7 +189,7 @@ function Login({ onLogin }) {
             />
           </label>
           {error && <p className="error">{error}</p>}
-          <button className="primary">
+          <button className="primary" disabled={loading}>
             <LogIn size={17} /> {loading ? "Entrando…" : "Entrar no sistema"}
           </button>
         </form>
@@ -381,6 +447,7 @@ function SalesChart({ data = [] }) {
   );
 }
 function Dashboard() {
+  const today = useStoreToday();
   const [d, setD] = useState(null);
   useEffect(() => {
     api("/dashboard").then((dashboard) => setD(dashboard));
@@ -418,6 +485,7 @@ function Dashboard() {
           Uma ótima oportunidade para entrar em contato!
         </div>
       )}
+      <ExpirationAlerts products={d.expirationProducts || []} today={today} />
       <div className="dashboard-grid">
         <Card title="Evolução das vendas" subtitle="Receita por dia">
           <div className="chart">
@@ -690,6 +758,7 @@ function Modal({ title, onClose, children }) {
   );
 }
 function Products({ canDelete }) {
+  const today = useStoreToday();
   const [products, setProducts] = useState([]),
     [movements, setMovements] = useState([]),
     [q, setQ] = useState(""),
@@ -781,6 +850,7 @@ function Products({ canDelete }) {
         </div>
       }
     >
+      <ExpirationAlerts products={products} today={today} />
       <div className="toolbar">
         <input
           className="search"
@@ -833,7 +903,10 @@ function Products({ canDelete }) {
                     {p.quantity} un.
                   </span>
                 </td>
-                <td>{date(p.expiration_date)}</td>
+                <td>
+                  {date(p.expiration_date)}
+                  <ExpirationBadge value={p.expiration_date} today={today} />
+                </td>
                 <td className="row-actions">
                   <button onClick={() => setStockProduct(p)}>
                     <Plus size={15} /> Estoque
@@ -910,6 +983,7 @@ function Products({ canDelete }) {
           onClose={() => setShow(false)}
           onSaved={() => {
             setShow(false);
+            if (!edit) setQ("");
             load();
           }}
         />
@@ -1883,6 +1957,7 @@ function UserForm({ user, onClose, onSaved }) {
   );
 }
 function Catalog() {
+  const today = useStoreToday();
   const [products, setProducts] = useState([]),
     [q, setQ] = useState(""),
     [type, setType] = useState("Todos");
@@ -1944,6 +2019,7 @@ function Catalog() {
             </small>
             <h3>{p.name}</h3>
             <p>{p.style}</p>
+            <ExpirationBadge value={p.expiration_date} today={today} />
             <footer>
               <b>{money(p.price)}</b>
               <span className={p.quantity ? "" : "sold"}>
