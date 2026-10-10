@@ -55,6 +55,14 @@ No PowerShell, se `npm.ps1` estiver bloqueado, use `npm.cmd` nos mesmos comandos
 
 O banco de exemplo usa usuário `admin` e senha `admin123`. Troque a senha antes de disponibilizar a loja. Um banco operacional existente mantém seus próprios usuários e senhas. Os campos de login não vêm preenchidos na interface.
 
+## Configurar formas de pagamento
+
+Administradores acessam **Formas de pagamento** para ajustar os tipos disponíveis. Cada cartão explica como receber, conferir o pagamento e identificar a transação. Configure nome, disponibilidade, limite de parcelas (1 a 24), exigência de código da transação e orientação exibida no formulário de venda. **Salvar configuração** grava somente aquela forma; **Usar orientação sugerida** preenche um texto para revisar e salvar.
+
+Ativar uma forma permite selecioná-la na venda, mas não cria cobrança, boleto, QR Code ou integração automática. Use seu banco, maquininha ou provedor para receber e conferir. O sistema não calcula juros nem frete. A tela também inclui orientações sobre identificação da loja, preço total, entrega, atendimento e devoluções, com links para o [Decreto do comércio eletrônico](https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2013/decreto/d7962.htm), o [Código de Defesa do Consumidor](https://www.planalto.gov.br/ccivil_03/leis/l8078compilado.htm) e os [cuidados com comprovantes Pix](https://www.bcb.gov.br/meubc/faqs/s/golpes).
+
+As credenciais do banco ou provedor não devem ser inseridas nas instruções. A emissão fiscal depende de um serviço emissor adequado; registrar uma referência de nota não emite o documento.
+
 ## Variáveis de ambiente
 
 O servidor lê `.env` automaticamente. Use `.env.example` como referência e substitua a chave de exemplo antes de publicar.

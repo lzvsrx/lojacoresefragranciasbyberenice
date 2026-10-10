@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 import { expirationStatus, storeToday } from "./expiration.js";
+import { paymentGuidance } from "./payment-guidance.js";
 
 function useStoreToday() {
   const [today, setToday] = useState(() => storeToday());
@@ -1462,20 +1463,25 @@ function CustomerOrders({
                 <option>Pendente</option>
                 <option>Em separação</option>
               </select>
+              <small>
+                Use Pendente enquanto aguarda o recebimento. Marque Pago ou
+                Concluído após conferir no banco ou na operadora.
+              </small>
             </label>
           </div>
           {method && (
             <div className="payment-details">
               {method.requires_reference === 1 && (
                 <label>
-                  TxID, EndToEndId, NSU ou autorização
+                  Código da transação
                   <input
                     required
                     maxLength="100"
                     value={reference}
                     onChange={(e) => setReference(e.target.value)}
-                    placeholder="Somente o código da transação"
+                    placeholder="Identificação do pagamento"
                   />
+                  <small>{paymentGuidance(method.code).reference}</small>
                   <small>Nunca informe número completo do cartão ou CVV.</small>
                 </label>
               )}
@@ -1492,6 +1498,10 @@ function CustomerOrders({
                       </option>
                     ))}
                   </select>
+                  <small>
+                    {installments}x de {money(total / installments)}. Total:{" "}
+                    {money(total)}. Sem cálculo automático de juros.
+                  </small>
                 </label>
               )}
               {method.code === "01" && (
@@ -1612,99 +1622,277 @@ function CustomerOrders({
 }
 function PaymentSettings() {
   const [methods, setMethods] = useState([]);
+  const [savingId, setSavingId] = useState(null);
+  const [feedback, setFeedback] = useState(null);
+  const [dirtyIds, setDirtyIds] = useState([]);
   const load = () => api("/payment-methods").then((items) => setMethods(items));
   useEffect(() => {
     void load().catch(reportLoadError);
   }, []);
-  const change = (id, key, value) =>
-    setMethods(methods.map((x) => (x.id === id ? { ...x, [key]: value } : x)));
+  const change = (id, key, value) => {
+    setDirtyIds((current) =>
+      current.includes(id) ? current : [...current, id],
+    );
+    setMethods((current) =>
+      current.map((x) => (x.id === id ? { ...x, [key]: value } : x)),
+    );
+  };
   const save = async (method) => {
+    if (savingId !== null) return;
+    setSavingId(method.id);
+    setFeedback(null);
     try {
       await api(`/payment-methods/${method.id}`, {
         method: "PUT",
         body: method,
       });
-      alert("Forma de pagamento atualizada");
-      void load().catch(reportLoadError);
+      setFeedback({
+        message: `${method.name}: configuração salva.`,
+        error: false,
+      });
+      setDirtyIds((current) => current.filter((id) => id !== method.id));
     } catch (e) {
-      alert(e.message);
+      setFeedback({ message: e.message, error: true });
+    } finally {
+      setSavingId(null);
     }
   };
   return (
-    <Card
-      title="Configuração das formas de pagamento"
-      subtitle="Códigos tPag nacionais usados na NF-e/NFC-e"
-    >
-      <div className="legal-note">
-        <b>Controle financeiro, não emissor fiscal.</b>
-        <p>
-          A emissão de NFC-e exige credenciamento da empresa, certificado
-          ICP-Brasil, CSC e autorização da SEF/MG. Não cadastre número completo
-          de cartão, senha ou CVV.
-        </p>
-      </div>
-      <div className="payment-methods">
-        {methods.map((method) => (
-          <article key={method.id}>
-            <div className="payment-code">{method.code}</div>
-            <div className="payment-config">
-              <label>
-                Nome
-                <input
-                  value={method.name}
-                  onChange={(e) => change(method.id, "name", e.target.value)}
-                />
-              </label>
-              <label>
-                Máximo de parcelas
-                <input
-                  type="number"
-                  min="1"
-                  max="24"
-                  value={method.max_installments}
-                  onChange={(e) =>
-                    change(method.id, "max_installments", +e.target.value)
-                  }
-                />
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={!!method.active}
-                  onChange={(e) =>
-                    change(method.id, "active", e.target.checked)
-                  }
-                />{" "}
-                Ativa
-              </label>
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={!!method.requires_reference}
-                  onChange={(e) =>
-                    change(method.id, "requires_reference", e.target.checked)
-                  }
-                />{" "}
-                Exigir referência
-              </label>
-              <label className="wide">
-                Instruções
-                <input
-                  maxLength="500"
-                  value={method.instructions || ""}
-                  onChange={(e) =>
-                    change(method.id, "instructions", e.target.value)
-                  }
-                />
-              </label>
-            </div>
-            <button onClick={() => save(method)}>
-              <Save size={16} /> Salvar
-            </button>
+    <div className="payments-page">
+      <Card
+        title="Configuração das formas de pagamento"
+        subtitle="Escolha como sua loja recebe e o que a equipe deve conferir em cada venda."
+      >
+        <div className="payments-intro">
+          <CreditCard size={28} />
+          <div>
+            <b>Recebimentos organizados, do pedido à entrega</b>
+            <p>
+              Ativar uma forma permite selecioná-la nas vendas. A cobrança e a
+              confirmação são feitas no seu banco, maquininha ou provedor: este
+              sistema registra o pagamento, sem cobrar automaticamente.
+            </p>
+          </div>
+        </div>
+        <div className="payment-overview">
+          <span>
+            <b>{methods.filter((m) => m.active).length}</b> formas ativas
+          </span>
+          <span>1. Configure</span>
+          <span>2. Confira o recebimento</span>
+          <span>3. Registre a venda</span>
+        </div>
+        {feedback && (
+          <div
+            className={`payment-feedback ${feedback.error ? "error" : "success"}`}
+            role={feedback.error ? "alert" : "status"}
+          >
+            {feedback.message}
+          </div>
+        )}
+        <div className="payment-methods">
+          {methods.map((method) => {
+            const guide = paymentGuidance(method.code);
+            return (
+              <article key={method.id}>
+                <div className="payment-method-heading">
+                  <div>
+                    <h4>{guide.title}</h4>
+                    <p>{guide.description}</p>
+                  </div>
+                  <span className={`pill ${method.active ? "green" : ""}`}>
+                    {dirtyIds.includes(method.id)
+                      ? "Alterações não salvas"
+                      : method.active
+                        ? "Ativa nas vendas"
+                        : "Desativada"}
+                  </span>
+                </div>
+                <div className="payment-method-help">
+                  <p>
+                    <b>Como conferir:</b> {guide.steps}
+                  </p>
+                  <p>
+                    <b>Referência:</b> {guide.reference}
+                  </p>
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void save(method);
+                  }}
+                >
+                  <fieldset
+                    disabled={savingId !== null}
+                    className="payment-config"
+                  >
+                    <label>
+                      Nome exibido na venda
+                      <input
+                        required
+                        minLength={2}
+                        maxLength={80}
+                        value={method.name}
+                        onChange={(e) =>
+                          change(method.id, "name", e.target.value)
+                        }
+                      />
+                      <small>
+                        Exemplo: Pix da loja ou Crédito na maquininha.
+                      </small>
+                    </label>
+                    <label>
+                      Máximo de parcelas
+                      <input
+                        type="number"
+                        min="1"
+                        max="24"
+                        value={method.max_installments}
+                        onChange={(e) =>
+                          change(method.id, "max_installments", +e.target.value)
+                        }
+                      />
+                      <small>
+                        1 = à vista. Use as condições do seu provedor; o sistema
+                        não calcula juros.
+                      </small>
+                    </label>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={!!method.active}
+                        onChange={(e) =>
+                          change(method.id, "active", e.target.checked)
+                        }
+                      />{" "}
+                      Disponível para vender
+                    </label>
+                    <label className="check">
+                      <input
+                        type="checkbox"
+                        checked={!!method.requires_reference}
+                        onChange={(e) =>
+                          change(
+                            method.id,
+                            "requires_reference",
+                            e.target.checked,
+                          )
+                        }
+                      />{" "}
+                      Exigir código da transação
+                    </label>
+                    <label className="wide">
+                      Orientação de pagamento
+                      <textarea
+                        rows={3}
+                        maxLength="500"
+                        value={method.instructions || ""}
+                        onChange={(e) =>
+                          change(method.id, "instructions", e.target.value)
+                        }
+                      />
+                      <small>
+                        Aparece no formulário de venda. Informe como pagar e
+                        quando o pedido será liberado. Não informe senha, token
+                        bancário, número de cartão ou CVV.
+                      </small>
+                    </label>
+                  </fieldset>
+                  <div className="payment-method-footer">
+                    <button
+                      type="button"
+                      disabled={savingId !== null}
+                      onClick={() =>
+                        change(method.id, "instructions", guide.instructions)
+                      }
+                    >
+                      Usar orientação sugerida
+                    </button>
+                    <button className="primary" disabled={savingId !== null}>
+                      <Save size={16} />{" "}
+                      {savingId === method.id
+                        ? "Salvando…"
+                        : "Salvar configuração"}
+                    </button>
+                  </div>
+                </form>
+              </article>
+            );
+          })}
+        </div>
+      </Card>
+      <Card
+        title="Prepare sua loja para vender online"
+        subtitle="Um guia para organizar a operação antes de divulgar o site."
+      >
+        <div className="payment-selling-guide">
+          <article>
+            <h4>Identificação e atendimento</h4>
+            <p>
+              Exiba nome empresarial, CPF/CNPJ aplicável, endereço e canais de
+              contato. Informe características dos produtos, disponibilidade e
+              restrições.
+            </p>
           </article>
-        ))}
-      </div>
-    </Card>
+          <article>
+            <h4>Preço, entrega e parcelamento</h4>
+            <p>
+              Mostre o total, frete, eventuais encargos, condições de pagamento
+              e prazo de entrega antes da confirmação. Combine retirada ou
+              entrega com o cliente; o sistema atual não calcula frete nem
+              juros.
+            </p>
+          </article>
+          <article>
+            <h4>Confirmação do pagamento</h4>
+            <p>
+              Use um banco ou provedor contratado. Confira o crédito ou a
+              aprovação antes de marcar como Pago ou Concluído. Para cobrança
+              automática no site, ainda é necessária uma integração com um
+              provedor.
+            </p>
+          </article>
+          <article>
+            <h4>Trocas, devoluções e privacidade</h4>
+            <p>
+              Disponibilize canais para cancelamento e arrependimento, com
+              orientação sobre o prazo legal de 7 dias nas compras fora do
+              estabelecimento. Informe o uso dos dados pessoais e prepare o
+              atendimento a devoluções e reembolsos.
+            </p>
+          </article>
+        </div>
+        <p className="payment-guide-note">
+          A emissão fiscal deve ser configurada com sua contabilidade e um
+          serviço emissor adequado. O campo fiscal da venda registra uma nota já
+          emitida; ele não emite a nota. Este guia não certifica a conformidade
+          da loja.
+        </p>
+        <div className="payment-source-links">
+          <a
+            href="https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2013/decreto/d7962.htm"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Regras do comércio eletrônico
+          </a>
+          <a
+            href="https://www.planalto.gov.br/ccivil_03/leis/l8078compilado.htm"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Código de Defesa do Consumidor
+          </a>
+          <a
+            href="https://www.bcb.gov.br/meubc/faqs/s/golpes"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Cuidados com comprovantes Pix
+          </a>
+        </div>
+      </Card>
+    </div>
   );
 }
 function Users({ canManage }) {
