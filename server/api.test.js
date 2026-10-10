@@ -442,6 +442,14 @@ test("API regression suite uses an isolated database", async (t) => {
       ).run(expiredId);
       const history = await request("/expiration-losses");
       assert.equal(history.body.total_cents, 3702);
+      const pdf = await fetch(base + "/export/products.pdf", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      assert.equal(pdf.status, 200);
+      assert.match(pdf.headers.get("content-type"), /application\/pdf/);
+      const pdfBytes = Buffer.from(await pdf.arrayBuffer());
+      assert.equal(pdfBytes.subarray(0, 5).toString(), "%PDF-");
+      assert.ok(pdfBytes.length > 1000);
       const dashboard = await request("/dashboard");
       assert.deepEqual(dashboard.body.expirationLosses, {
         total_cents: 3702,

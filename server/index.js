@@ -1271,6 +1271,9 @@ app.get(
   "/api/export/products.pdf",
   auth(["admin", "funcionario"]),
   async (_req, res) => {
+    const losses = await db
+      .prepare("SELECT * FROM expiration_losses ORDER BY id DESC")
+      .all();
     const products = await db
       .prepare(
         `SELECT p.id,p.name,p.brand,p.style,p.type,p.price,p.quantity,p.expiration_date,COALESCE(SUM(CASE WHEN s.order_status='Cancelado' THEN 0 ELSE s.quantity END),0) sold_quantity FROM products p LEFT JOIN sales s ON s.product_id=p.id GROUP BY p.id ORDER BY COALESCE(p.type,'Sem tipo'),p.brand,p.name`,
@@ -1371,6 +1374,75 @@ app.get(
         .font("Helvetica")
         .fillColor("#29231f")
         .text("Nenhum produto cadastrado.");
+    const today = storeToday();
+    const expiredStock = products.filter(
+      (product) =>
+        product.quantity > 0 &&
+        expirationStatus(product.expiration_date, today)?.status === "expired",
+    );
+    const lossSection = (title, description, rows) => {
+      doc.addPage();
+      doc.font("Helvetica-Bold").fontSize(14).fillColor("#382c25").text(title);
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .fillColor("#5f544d")
+        .text(description)
+        .moveDown();
+      let units = 0,
+        totalCents = 0;
+      for (const row of rows) {
+        const name = `#${row.product_id}  ${row.product_name}`;
+        const detail = `Quantidade: ${row.quantity} un. | Valor unitário: ${brl(row.unit_price_cents / 100)} | Valor total: ${brl(row.total_cents / 100)}`;
+        const dates = `Validade: ${row.expiration_date}${row.created_at ? ` | Retirada: ${row.created_at}` : ""}`;
+        doc.font("Helvetica-Bold").fontSize(10);
+        const height =
+          doc.heightOfString(name, { width: 519 }) +
+          doc.heightOfString(detail, { width: 519 }) +
+          doc.heightOfString(dates, { width: 519 }) +
+          28;
+        if (doc.y + height > 770) {
+          doc.addPage();
+          doc
+            .font("Helvetica-Bold")
+            .fontSize(12)
+            .text(`${title} (continuação)`)
+            .moveDown();
+        }
+        doc.font("Helvetica-Bold").fontSize(10).fillColor("#29231f").text(name);
+        doc.font("Helvetica").fontSize(9).text(detail).text(dates).moveDown();
+        units += row.quantity;
+        totalCents += row.total_cents;
+      }
+      if (!rows.length)
+        doc.font("Helvetica").fontSize(10).text("Nenhum registro.").moveDown();
+      if (doc.y > 730) doc.addPage();
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(11)
+        .fillColor("#382c25")
+        .text(`Total: ${units} unidades | ${brl(totalCents / 100)}`);
+    };
+    lossSection(
+      "Perdas por vencimento — retiradas registradas",
+      "Histórico acumulado. Valores pelo preço de venda no momento da baixa, não pelo custo de compra.",
+      losses,
+    );
+    lossSection(
+      "Produtos vencidos ainda em estoque",
+      `Aguardam retirada em ${today}. Valores estimados pelo preço de venda atual; não somados às perdas já registradas.`,
+      expiredStock.map((product) => {
+        const cents = Math.round(product.price * 100);
+        return {
+          product_id: product.id,
+          product_name: product.name,
+          quantity: product.quantity,
+          expiration_date: product.expiration_date,
+          unit_price_cents: cents,
+          total_cents: cents * product.quantity,
+        };
+      }),
+    );
     const range = doc.bufferedPageRange();
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(i);
