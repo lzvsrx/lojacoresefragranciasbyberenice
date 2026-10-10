@@ -21,6 +21,21 @@ const disabledPassword = bcrypt.hashSync(randomBytes(32).toString("hex"), 12);
 const demoPassword = bcrypt.hashSync("admin123", 12);
 db.pragma("foreign_keys = OFF");
 db.transaction(() => {
+  // Never publish customer orders, addresses, support requests or merchant CPF.
+  const tables = new Set(
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((t) => t.name),
+  );
+  for (const table of [
+    "service_requests",
+    "web_order_events",
+    "web_order_items",
+    "web_orders",
+    "commerce_settings",
+  ])
+    if (tables.has(table)) db.prepare(`DELETE FROM ${table}`).run();
   db.prepare("UPDATE users SET username='usuario_temporario_' || id").run();
   db.prepare(
     `UPDATE users SET
@@ -46,8 +61,14 @@ db.transaction(() => {
     disabledPassword,
   );
   db.prepare(
-    "UPDATE sales SET transaction_reference=NULL,fiscal_key=NULL",
+    "UPDATE sales SET transaction_reference=NULL,fiscal_key=NULL,fiscal_document=NULL",
   ).run();
+  if (tables.has("stock_movements"))
+    db.prepare(
+      "UPDATE stock_movements SET reason=movement_type || ' (histórico anonimizado)'",
+    ).run();
+  if (tables.has("payment_methods"))
+    db.prepare("UPDATE payment_methods SET instructions=''").run();
 })();
 db.pragma("wal_checkpoint(TRUNCATE)");
 db.exec("VACUUM");

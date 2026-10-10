@@ -1,6 +1,6 @@
 # Cores & Fragrâncias by Berenice
 
-Sistema de catálogo, vendas e estoque com React, API Node.js e banco SQLite local ou Turso remoto.
+Loja online, pedidos, atendimento, vendas e estoque com React, API Node.js e banco SQLite local ou Turso remoto. O recebimento e o reembolso de pagamentos são conferidos manualmente pela equipe.
 
 Este documento reúne as funcionalidades e correções implementadas até agora. **A execução local foi validada; o banco Turso ainda precisa ser criado e conectado à Vercel para permitir gravações permanentes no site publicado.**
 
@@ -9,6 +9,12 @@ Este documento reúne as funcionalidades e correções implementadas até agora.
 - Vitrine pública com entrada própria para clientes, cadastro e login separados da equipe.
 - Busca sem distinção de acentos, filtros de marca, categoria e preço e ordenação por novidades, nome ou valor.
 - Sacola com conferência de preços e estoque no servidor antes de preparar o pedido pelo WhatsApp.
+- Checkout em duas etapas, com correção de dados, resumo do frete/total e aceite das condições.
+- Pedidos online com reserva de estoque, histórico, pagamento manual, entrega, retirada e reembolso.
+- Área do cliente com acompanhamento, confirmação imprimível, correção de cadastro, troca de senha e exportação dos próprios dados.
+- Atendimento com protocolo imediato, prazo de manifestação e histórico de respostas.
+- Páginas públicas de identificação, compra, entrega, devoluções e privacidade.
+- Configuração administrativa da loja e informações detalhadas de produtos, incluindo composição, conteúdo, fabricante e cuidados.
 
 Na tela **Produtos**, o botão **Vender** abre o formulário com o item selecionado, permitindo informar quantidade, cliente e pagamento. Ao confirmar, o estoque é baixado e a coluna **Vendido** atualiza a quantidade e o valor acumulados daquele produto. O painel também mostra as unidades vendidas e o faturamento. Vendas canceladas são desconsideradas; produtos sem estoque têm o botão desativado.
 
@@ -65,6 +71,10 @@ A entrada padrão agora é a loja. Use os acessos separados:
 | Login de cliente       | `http://localhost:3001/#/cliente/entrar`    | `http://localhost:5173/#/cliente/entrar`    |
 | Cadastro de cliente    | `http://localhost:3001/#/cliente/cadastrar` | `http://localhost:5173/#/cliente/cadastrar` |
 | Sacola                 | `http://localhost:3001/#/sacola`            | `http://localhost:5173/#/sacola`            |
+| Checkout               | `http://localhost:3001/#/checkout`          | `http://localhost:5173/#/checkout`          |
+| Meus pedidos           | `http://localhost:3001/#/pedidos`           | `http://localhost:5173/#/pedidos`           |
+| Atendimento e dados    | `http://localhost:3001/#/atendimento`       | `http://localhost:5173/#/atendimento`       |
+| Políticas da loja      | `http://localhost:3001/#/politicas/compra`  | `http://localhost:5173/#/politicas/compra`  |
 | Administração / equipe | `http://localhost:3001/#/admin`             | `http://localhost:5173/#/admin`             |
 
 Clientes navegam sem login. O cadastro exige nome, e-mail, usuário e senha forte; telefone é opcional. Não há confirmação automática de e-mail nem recuperação de senha por e-mail implementada; o acesso tem um link para pedir ajuda à loja. O servidor sempre cria o perfil `cliente`, mesmo que alguém tente enviar outro perfil. Clientes não acessam produtos administrativos, usuários, estoque, vendas ou configurações.
@@ -77,7 +87,42 @@ Fotos de usuários exigem autenticação: clientes só consultam a própria foto
 
 O catálogo entrega 24 produtos por página (máximo de 48 por chamada), carrega imagens sob demanda e aguarda 250 ms após alterações de busca antes de consultar a API, cancelando consultas anteriores. Metadados públicos têm cache interno de até 15 segundos, invalidado por gravações de produtos, vendas e estoque na mesma instância. A vitrine consulta novamente a cada minuto enquanto está visível e ao retornar à aba. A conferência da sacola consulta o banco diretamente, sem usar esse cache.
 
-A sacola é guardada neste navegador, aceita até 40 produtos diferentes e não reserva estoque. Depois do login, **Conferir valores e disponibilidade** consulta preços atuais e valida quantidades. **Enviar pedido pelo WhatsApp** abre a mensagem para o cliente enviar: não registra uma venda nem confirma pagamento automaticamente. A equipe confirma as condições e registra a venda no painel. Frete e pagamento são combinados no atendimento.
+A sacola é guardada neste navegador, aceita até 40 produtos diferentes e não reserva estoque. **Finalizar pedido** abre o checkout, que consulta os preços atuais e permite escolher retirada ou entrega na região/intervalo de CEP configurados, além da forma de pagamento. O cliente revisa o total e aceita as condições antes de confirmar. Se o valor mudar, o servidor recusa a confirmação e exige nova conferência. **Enviar pedido pelo WhatsApp** continua sendo uma alternativa de atendimento: a mensagem, por si só, não registra pedido ou venda.
+
+### Habilitar a loja online
+
+No painel, entre em **Loja online** e preencha razão social/nome do fornecedor, CPF ou CNPJ, endereço, e-mail, WhatsApp, horário, prazos e condições de entrega. O documento tem validação de dígitos verificadores, incluindo CNPJ alfanumérico; isso não consulta nem comprova a situação cadastral perante a Receita. Dados legais não foram inventados: a finalização começa **desativada**.
+
+Preencha também as informações reais dos produtos: descrição, composição, conteúdo/unidade, fabricante/origem e modo de uso/cuidados. O checkout recusa produtos sem esses campos. Informe a referência de regularização Anvisa quando aplicável e confira a situação do produto no serviço oficial; o sistema não faz essa consulta automaticamente.
+
+Revise as páginas públicas e só então marque **Habilitar finalização de compras com pagamento manual**. O servidor exige identificação e atendimento completos e impede habilitar vendas enquanto a conta `admin` mantiver a senha de exemplo `admin123`. Na Vercel, conecte primeiro o banco persistente.
+
+### Pedidos online e estoque
+
+1. A confirmação cria um pedido `WEB-…`, preservando nomes, preços, informações dos produtos, fornecedor, entrega, pagamento e versão das condições. A reserva baixa o estoque disponível por 24 horas, em transação única.
+2. Repetir a mesma confirmação com o mesmo identificador não duplica o pedido nem a reserva. Confirmações concorrentes não permitem estoque negativo. Cada cliente pode ter até três pedidos aguardando pagamento.
+3. A equipe abre **Pedidos online**, verifica o recebimento no banco/caixa e informa a referência para marcar **Pago**. Isso registra as vendas pelos preços aceitos no checkout, sem nova baixa de estoque. O site não movimenta dinheiro, não gera Pix/boleto e não recebe cartão.
+4. A equipe atualiza separação, envio ou retirada e entrega. O cliente consulta o histórico e imprime a confirmação em **Meus pedidos**. Uma chave de nota já emitida pode ser registrada; a impressão do pedido não é documento fiscal.
+5. Cancelar uma reserva libera o estoque uma única vez. Reservas expiradas são liberadas ao criar novos pedidos ou pelo botão **Liberar reservas expiradas** no painel. Não há tarefa agendada: a equipe deve usar esse botão ao iniciar o atendimento.
+6. Pedidos pagos seguem pelo fluxo de solicitação e confirmação de reembolso. Somente administrador confirma **Reembolsado**, com referência e conferência da operação externa. As vendas deixam de compor o faturamento. Itens devolvidos **não voltam automaticamente ao estoque**: precisam de inspeção e movimentação apropriada. Produtos vencidos não devem ser repostos para venda.
+
+As vendas e os indicadores antigos contabilizam o valor dos **produtos**; o frete aparece separadamente no pedido online e integra o total devido pelo cliente. Não registre novamente pela tela de venda um pedido online já marcado como pago. Vendas ligadas a pedidos online não podem ser canceladas isoladamente pela rota antiga.
+
+Os pedidos mostram pagamento à vista, sem parcelamento automático. Configurar parcelas na venda administrativa não cria contrato de crédito nem cobrança no checkout. Estorno, logística reversa, conciliação de pagamentos, documento fiscal e comunicação externa continuam sob responsabilidade da equipe e dos serviços contratados.
+
+### Atendimento, devoluções e privacidade
+
+O cliente pode registrar atendimento, arrependimento, troca/defeito, cancelamento e solicitações de privacidade. A confirmação com protocolo `SAC-…` é imediata; o painel mostra a manifestação prevista em até cinco dias e destaca solicitações sem resposta com prazo ultrapassado. Esse prazo operacional não substitui os prazos específicos de cada direito. Respostas ficam no portal e são preservadas em histórico; não há envio automático de e-mail ou WhatsApp. A equipe deve acompanhar **Atendimento** diariamente. E-mail e WhatsApp públicos também atendem pessoas sem conta.
+
+As políticas informam o direito de arrependimento de sete dias nas compras fora do estabelecimento, os canais de solicitação e a restituição nos termos da lei, sem impor embalagem lacrada como condição geral. O sistema não decide automaticamente se um pedido de devolução está dentro do prazo nem recusa protocolos por esse motivo.
+
+Em **Atendimento e meus dados**, o cliente pode corrigir nome/e-mail/telefone, baixar seus dados e trocar a senha mediante a senha atual. A troca invalida todas as sessões anteriores de cliente. Pedidos de eliminação e demais direitos são avaliados pela equipe, respeitando a conservação legal; não há apagamento automático do histórico de vendas. Não há consentimento de marketing embutido no cadastro. A política descreve sessão/sacola no navegador e Google Fonts; não há analytics ou publicidade de terceiros no código atual.
+
+### Referências e pendências externas
+
+As páginas e os fluxos foram preparados com base no [Decreto 7.962/2013](https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2013/decreto/d7962.htm), no [CDC](https://www.planalto.gov.br/ccivil_03/leis/l8078compilado.htm), na [LGPD](https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2018/lei/l13709.htm), nas [orientações de segurança da ANPD](https://www.gov.br/anpd/pt-br/assuntos/noticias/anpd-publica-guia-de-seguranca-para-agentes-de-tratamento-de-pequeno-porte), na [consulta de cosméticos da Anvisa](https://www.gov.br/anvisa/pt-br/sistemas/consulta-a-cosmeticos-regularizados) e na [documentação do CNPJ alfanumérico da Receita](https://www.gov.br/receitafederal/pt-br/centrais-de-conteudo/publicacoes/documentos-tecnicos/cnpj). Revisão: 10/10/2026.
+
+O código não certifica conformidade integral. Antes de operar, a loja precisa fornecer dados reais, validar suas regras empresariais/fiscais/sanitárias com os responsáveis, conferir produtos e rotulagem, definir retenção e prestadores de dados, conectar Turso/HTTPS, manter backups, contratar/configurar recebimento e emissão fiscal e executar atendimento, entregas e devoluções. Recuperação automática de senha e confirmação de e-mail dependem de integração de e-mail ainda não implementada; a ajuda de acesso permanece pelo atendimento. Não foram criadas credenciais ou integrações fictícias.
 
 Produtos vencidos são excluídos da vitrine e recusados na conferência da sacola e no registro de novas vendas. Esgotados ficam ocultos por padrão, com filtro para visualização. Produtos próximos do vencimento mostram sua validade.
 
@@ -125,7 +170,7 @@ O comando utiliza o mecanismo de backup do SQLite, incluindo alterações em WAL
 
 Com Turso configurado, esse comando continua copiando **o arquivo local**. O banco remoto precisa de backup pelo serviço Turso.
 
-`npm run create-seed` recria a base pública a partir dos dados locais, removendo informações pessoais, redefinindo o administrador de exemplo e desativando as demais credenciais. Use apenas ao preparar uma base para distribuição.
+`npm run create-seed` recria a base pública a partir dos dados locais, removendo informações pessoais, pedidos online, endereços de entrega, protocolos e configuração privada do fornecedor, redefinindo o administrador de exemplo e desativando as demais credenciais. Use apenas ao preparar uma base para distribuição. O banco operacional não deve ser enviado ao GitHub.
 
 ## Ativar o banco permanente na Vercel
 
@@ -210,7 +255,9 @@ Exportações de produtos e vendas protegem células que poderiam ser interpreta
 
 ## Validações realizadas
 
-A suíte local passou com **22 testes**, cobrindo autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração, busca sem acentos, catálogo público, cadastro seguro de clientes, separação de permissões, conferência de sacola e bloqueio de gravações na Vercel sem banco persistente.
+A atualização passou com **32 testes**, além de build e auditoria sem vulnerabilidades encontradas. O fluxo de cadastro, detalhes, checkout, reserva, confirmação manual de pagamento, atendimento e correção de cadastro foi exercitado em navegador, com verificação de layout nas larguras 320, 390 e 1440 pixels.
+
+A suíte inclui testes de autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração, busca sem acentos, catálogo público, cadastro seguro de clientes, separação de permissões, conferência de sacola e bloqueio de gravações na Vercel sem banco persistente. Os testes de comércio acrescentam identificação do fornecedor, informações de produtos, aceite, preço/frete, idempotência, concorrência, privacidade entre contas, pagamento/reembolso, expiração e liberação de reservas e troca de senha.
 
 Também foram verificados a compilação, os fluxos principais em navegador e o comportamento responsivo. A auditoria de dependências não apontou vulnerabilidades na verificação realizada; reavalie esse resultado ao atualizar o projeto.
 
@@ -230,8 +277,11 @@ O workflow `.github/workflows/ci.yml` está configurado para instalação, teste
 src/                     Interface React, estilos e regras de validade
 src/storefront.jsx       Vitrine, cadastro, login e sacola de clientes
 src/storefront.css       Estilos da área pública
+src/commerce.jsx         Checkout, pedidos, políticas, atendimento e configuração da loja
+src/commerce.css         Estilos dos fluxos de comércio
 src/search.js            Busca compartilhada sem distinção de acentos
 server/index.js          API, autenticação e regras do sistema
+server/commerce.js       Pedidos online, reservas, atendimento e dados do cliente
 server/database.js       Adaptador SQLite local / libSQL remoto
 server/validation.js     Validação de entradas
 server/rate-limits.js    Limites de login e requisições

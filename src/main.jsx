@@ -28,6 +28,7 @@ import "./styles.css";
 import { expirationStatus, storeToday } from "./expiration.js";
 import { paymentGuidance } from "./payment-guidance.js";
 import { matchesProduct } from "./search.js";
+import { CommerceSettings, OrderArea, ServiceArea } from "./commerce.jsx";
 const Storefront = React.lazy(() => import("./storefront.jsx"));
 
 function useStoreToday() {
@@ -331,18 +332,42 @@ const ROLE_PERMISSIONS = {
 function Shell({ user, setUser }) {
   const allowed =
     user.role === "admin"
-      ? ["dashboard", "products", "users", "payments"]
-      : ["dashboard", "products", "users"];
+      ? [
+          "dashboard",
+          "products",
+          "orders",
+          "service",
+          "users",
+          "payments",
+          "shop",
+        ]
+      : ["dashboard", "products", "orders", "service", "users"];
   const labels = {
     dashboard: "Visão geral",
     products: "Produtos & estoque",
     users: "Clientes & equipe",
     payments: "Formas de pagamento",
     catalog: "Catálogo",
+    orders: "Pedidos online",
+    service: "Atendimento",
+    shop: "Loja online",
   };
   const [page, setPage] = useState(
-    location.hash.startsWith("#/admin/cadastros") ? "users" : allowed[0],
+    location.hash.startsWith("#/admin/cadastros")
+      ? "users"
+      : location.hash.startsWith("#/admin/pedidos")
+        ? "orders"
+        : allowed[0],
   );
+  const [adminRoute, setAdminRoute] = useState(location.hash.slice(1));
+  useEffect(() => {
+    const update = () => {
+      setAdminRoute(location.hash.slice(1));
+      if (location.hash.startsWith("#/admin/pedidos")) setPage("orders");
+    };
+    window.addEventListener("hashchange", update);
+    return () => window.removeEventListener("hashchange", update);
+  }, []);
   const [loadError, setLoadError] = useState("");
   const [revision, setRevision] = useState(0);
   const [storageWarning, setStorageWarning] = useState(false);
@@ -378,7 +403,10 @@ function Shell({ user, setUser }) {
               <button
                 key={item}
                 className={page === item ? "active" : ""}
-                onClick={() => setPage(item)}
+                onClick={() => {
+                  setPage(item);
+                  if (item === "orders") location.hash = "/admin/pedidos";
+                }}
               >
                 {React.createElement(NavIcon, { size: 19 })}
                 {labels[item]}
@@ -436,6 +464,17 @@ function Shell({ user, setUser }) {
           )}{" "}
           {page === "users" && <Users canManage={user.role === "admin"} />}{" "}
           {page === "payments" && <PaymentSettings />}{" "}
+          {page === "shop" && <CommerceSettings api={api} />}
+          {page === "orders" && (
+            <OrderArea
+              key={adminRoute}
+              api={api}
+              user={user}
+              admin
+              route={adminRoute}
+            />
+          )}
+          {page === "service" && <ServiceArea api={api} user={user} admin />}
         </React.Fragment>
       </section>
     </div>

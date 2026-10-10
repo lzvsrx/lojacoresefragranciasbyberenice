@@ -1,4 +1,5 @@
 import express from "express";
+import { installCommerce } from "./commerce.js";
 import cors from "cors";
 import helmet from "helmet";
 import {
@@ -821,9 +822,12 @@ app.delete("/api/products/:id", auth(["admin"]), async (req, res) => {
     return res.status(409).json({
       error: "Produto possui vendas ou movimentações e não pode ser excluído",
     });
-  const result = await db
-    .prepare("DELETE FROM products WHERE id=?")
-    .run(req.params.id);
+  const result = await db.transaction(async () => {
+    await db
+      .prepare("DELETE FROM product_details WHERE product_id=?")
+      .run(req.params.id);
+    return db.prepare("DELETE FROM products WHERE id=?").run(req.params.id);
+  })();
   if (!result.changes)
     return res.status(404).json({
       error: "Produto não encontrado",
@@ -969,6 +973,15 @@ app.get("/api/sales", auth(["admin", "funcionario"]), async (req, res) =>
   ),
 );
 app.post("/api/sales/:id/cancel", auth(["admin"]), async (req, res) => {
+  if (
+    await db
+      .prepare("SELECT 1 FROM web_order_items WHERE sale_id=?")
+      .get(req.params.id)
+  )
+    throw inputError(
+      "Esta venda pertence a um pedido online. Solicite o reembolso na tela Pedidos online.",
+      409,
+    );
   try {
     const result = await db.transaction(async () => {
       const sale = await db
@@ -1743,6 +1756,40 @@ app.post(
     });
   },
 );
+app.put(
+  "/api/customer/password",
+  auth(["cliente"]),
+  createRegistrationLimiter(),
+  async (req, res) => {
+    const b = req.body || {};
+    if (!validPassword(b.password))
+      throw inputError(
+        "Nova senha: 8 a 72 caracteres, com maiúscula, minúscula e número",
+      );
+    const current = await db
+      .prepare("SELECT password FROM users WHERE id=?")
+      .get(req.user.id);
+    if (
+      typeof b.current_password !== "string" ||
+      b.current_password.length > 72 ||
+      !(await bcrypt.compare(b.current_password, current.password))
+    )
+      throw inputError("Senha atual incorreta", 403);
+    const hash = await bcrypt.hash(b.password, 12);
+    const r = await db
+      .prepare(
+        "UPDATE users SET password=?,session_version=session_version+1 WHERE id=? AND password=?",
+      )
+      .run(hash, req.user.id, current.password);
+    if (!r.changes)
+      throw inputError(
+        "A senha foi alterada em outra sessão. Entre novamente.",
+        409,
+      );
+    res.json({ ok: true });
+  },
+);
+await installCommerce(app, { db, auth, safeUser });
 app.use(express.static(path.join(root, "dist")));
 app.get("/{*splat}", (req, res, next) =>
   req.path.startsWith("/api")

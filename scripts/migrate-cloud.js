@@ -11,7 +11,7 @@ const quote = (name) => `"${name.replaceAll('"', '""')}"`;
 export async function migrateDatabase(source, client) {
   const tables = source
     .prepare(
-      "SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY CASE name WHEN 'users' THEN 0 WHEN 'products' THEN 1 WHEN 'payment_methods' THEN 2 WHEN 'sales' THEN 3 ELSE 4 END",
+      "SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY CASE name WHEN 'users' THEN 0 WHEN 'products' THEN 1 WHEN 'payment_methods' THEN 2 WHEN 'sales' THEN 3 WHEN 'stock_movements' THEN 4 WHEN 'web_orders' THEN 5 WHEN 'web_order_items' THEN 6 WHEN 'web_order_events' THEN 7 WHEN 'service_requests' THEN 8 ELSE 9 END",
     )
     .all();
   const existing = (

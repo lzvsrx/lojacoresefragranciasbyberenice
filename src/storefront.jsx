@@ -13,14 +13,22 @@ import {
 } from "lucide-react";
 import { expirationStatus, storeToday } from "./expiration.js";
 import "./storefront.css";
+import {
+  ShopPolicies,
+  ProductDetails,
+  Checkout,
+  OrderArea,
+  ServiceArea,
+  ShopIdentity,
+} from "./commerce.jsx";
 
 const money = (value) =>
   (Number(value) || 0).toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
-const contact = (message) =>
-  `https://wa.me/553598213049?text=${encodeURIComponent(message)}`;
+const contactUrl = (message, phone) =>
+  `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
 const initialFilters = {
   q: "",
   category: "",
@@ -68,7 +76,8 @@ const readCart = () => {
   }
 };
 
-function CustomerAccess({ api, register, onLogin, writable }) {
+function CustomerAccess({ api, register, onLogin, writable, phone }) {
+  const contact = (message) => contactUrl(message, phone);
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -184,6 +193,7 @@ function CustomerAccess({ api, register, onLogin, writable }) {
               minLength={3}
               maxLength={40}
               pattern="[a-zA-Z0-9._\-]{3,40}"
+              aria-label="Usuário"
               autoComplete="username"
               autoCapitalize="none"
               spellCheck={false}
@@ -200,6 +210,7 @@ function CustomerAccess({ api, register, onLogin, writable }) {
               required
               type="password"
               minLength={register ? 8 : undefined}
+              aria-label="Senha"
               maxLength={72}
               autoComplete={register ? "new-password" : "current-password"}
               value={form.password}
@@ -247,6 +258,19 @@ function CustomerAccess({ api, register, onLogin, writable }) {
                 : "Entrar na minha conta"}
             <ArrowRight size={17} />
           </button>
+          {register && (
+            <p className="store-fineprint">
+              Usamos seus dados para sua conta e atendimento, conforme o{" "}
+              <a
+                href="#/politicas/privacidade"
+                target="_blank"
+                rel="noreferrer"
+              >
+                aviso de privacidade
+              </a>
+              . O cadastro não autoriza mensagens de marketing.
+            </p>
+          )}
         </form>
         <p>
           {register ? "Já tem uma conta?" : "Primeira vez por aqui?"}{" "}
@@ -290,6 +314,11 @@ export default function Storefront({ api, route }) {
   const [notice, setNotice] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [cart, setCart] = useState(readCart);
+  const [shop, setShop] = useState({
+    phone: "553598213049",
+    address: "Praça Pres. João Pessoa, 66 · Centro · Varginha, MG",
+  });
+  const contact = (message) => contactUrl(message, shop.phone);
   const [quote, setQuote] = useState(null);
   const [quoting, setQuoting] = useState(false);
   const [quoteError, setQuoteError] = useState("");
@@ -298,7 +327,20 @@ export default function Storefront({ api, route }) {
   const isRegister = route.startsWith("/cliente/cadastrar");
   const isAccess = isRegister || route.startsWith("/cliente/entrar");
   const isAccount = route === "/cliente";
-  const showingCatalog = !isCart && !isAccess && !isAccount;
+  const isPolicies = route.startsWith("/politicas/"),
+    isProduct = route.startsWith("/produto/"),
+    isCheckout = route === "/checkout",
+    isOrders = route.startsWith("/pedidos"),
+    isService = route.startsWith("/atendimento");
+  const showingCatalog =
+    !isCart &&
+    !isAccess &&
+    !isAccount &&
+    !isPolicies &&
+    !isProduct &&
+    !isCheckout &&
+    !isOrders &&
+    !isService;
   useEffect(() => {
     let active = true;
     const expired = () => {
@@ -332,6 +374,11 @@ export default function Storefront({ api, route }) {
     api("/storage-status", { session: "public" })
       .then((status) => {
         if (active) setWritable(status.writable);
+      })
+      .catch(() => {});
+    api("/shop", { session: "public" })
+      .then((data) => {
+        if (active) setShop(data);
       })
       .catch(() => {});
     return () => {
@@ -496,6 +543,7 @@ export default function Storefront({ api, route }) {
         </a>
         <nav aria-label="Navegação da loja">
           <a href="#/loja">Explorar produtos</a>
+          <a href="#/pedidos">Meus pedidos</a>
           <a href={user ? "#/cliente" : "#/cliente/entrar"}>
             <UserRound size={18} />
             <span>{user ? user.name.split(" ")[0] : "Entrar"}</span>
@@ -529,7 +577,41 @@ export default function Storefront({ api, route }) {
             indisponíveis; fale com a loja para atendimento.
           </p>
         )}
-        {isAccess ? (
+        {isPolicies ? (
+          <ShopPolicies api={api} route={route} />
+        ) : isProduct ? (
+          <ProductDetails
+            key={route}
+            api={api}
+            id={route.split("/")[2]}
+            onAdd={add}
+          />
+        ) : isCheckout ? (
+          <Checkout
+            api={api}
+            user={user}
+            cart={cart}
+            onComplete={(order) => {
+              setCart([]);
+              location.hash = `/pedidos/${order.id}`;
+            }}
+          />
+        ) : isOrders ? (
+          <OrderArea key={route} api={api} user={user} route={route} />
+        ) : isService ? (
+          <ServiceArea
+            key={user?.id}
+            api={api}
+            user={user}
+            onProfileChanged={setUser}
+            onPasswordChanged={() => {
+              localStorage.removeItem("customerToken");
+              setUser(null);
+              setNotice("Senha alterada. Entre novamente com a nova senha.");
+              location.hash = "/cliente/entrar";
+            }}
+          />
+        ) : isAccess ? (
           checkingUser ? (
             <p role="status">Verificando seu acesso…</p>
           ) : user ? (
@@ -547,6 +629,7 @@ export default function Storefront({ api, route }) {
               register={isRegister}
               onLogin={login}
               writable={writable}
+              phone={shop.phone}
             />
           )
         ) : isAccount ? (
@@ -571,13 +654,19 @@ export default function Storefront({ api, route }) {
                   <a className="button" href="#/sacola">
                     Ver sacola ({count})
                   </a>
+                  <a className="button" href="#/pedidos">
+                    Meus pedidos
+                  </a>
+                  <a className="button" href="#/atendimento">
+                    Atendimento e meus dados
+                  </a>
                   <button onClick={logout}>
                     <LogOut size={16} /> Sair da conta
                   </button>
                 </div>
                 <p className="store-fineprint">
-                  Seu pedido é combinado pelo WhatsApp. O envio da mensagem não
-                  confirma pagamento nem reserva o estoque.
+                  Finalize sua compra pela sacola e acompanhe o pedido aqui. O
+                  pagamento é orientado e conferido pela equipe.
                 </p>
               </>
             ) : (
@@ -617,6 +706,9 @@ export default function Storefront({ api, route }) {
                         )}
                         <div>
                           <h3>{p.name}</h3>
+                          <a href={`#/produto/${p.id}`}>
+                            Ver detalhes, composição e cuidados
+                          </a>
                           <span>
                             {money(
                               currentQuote
@@ -666,6 +758,10 @@ export default function Storefront({ api, route }) {
                 </div>
                 <aside className="store-cart-summary">
                   <h2>Resumo da sacola</h2>
+                  <a className="button primary" href="#/checkout">
+                    Finalizar pedido
+                  </a>
+                  <button onClick={() => setCart([])}>Limpar sacola</button>
                   <span>{count} unidades</span>
                   <div className="store-cart-total">
                     <span>Produtos</span>
@@ -968,6 +1064,9 @@ export default function Storefront({ api, route }) {
                           </small>
                           <h3>{p.name}</h3>
                           <p>{p.style || "Escolhido para o seu cuidado."}</p>
+                          <a href={`#/produto/${p.id}`}>
+                            Ver detalhes, composição e cuidados
+                          </a>
                           {expiry?.status === "soon" && (
                             <span className="store-expiry">
                               Validade:{" "}
@@ -1062,19 +1161,25 @@ export default function Storefront({ api, route }) {
       <footer className="store-footer">
         <div>
           <b>Cores & Fragrâncias by Berenice</b>
-          <p>Praça Pres. João Pessoa, 66 · Centro · Varginha, MG</p>
+          <ShopIdentity api={api} />
+          <p>{shop.address}</p>
           <a
             href={contact("Olá! Gostaria de atendimento.")}
             target="_blank"
             rel="noreferrer"
           >
-            WhatsApp: (35) 9821-3049
+            WhatsApp: +{shop.phone}
           </a>
         </div>
         <div>
           <a href="#/loja">Catálogo</a>
           <a href="#/cliente/entrar">Área do cliente</a>
           <a href="#/admin">Acesso da equipe</a>
+          <a href="#/politicas/compra">Identificação e condições de compra</a>
+          <a href="#/politicas/entrega">Entrega e pagamento</a>
+          <a href="#/politicas/devolucoes">Trocas e devoluções</a>
+          <a href="#/politicas/privacidade">Privacidade</a>
+          <a href="#/atendimento">Atendimento</a>
           <small>Pagamento e entrega confirmados no atendimento.</small>
         </div>
       </footer>
