@@ -11,7 +11,8 @@
     "create-seed": "node scripts/create-seed.js",
     "backup": "node scripts/backup.js",
     "migrate:cloud": "node scripts/migrate-cloud.js",
-    "test": "node --test server/*.test.js src/*.test.js"
+    "test": "node --test server/*.test.js src/*.test.js",
+    "sync:from-cloud": "node scripts/pull-cloud.js"
   },
   "engines": {
     "node": ">=22.12.0"

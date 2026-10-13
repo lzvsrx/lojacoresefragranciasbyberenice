@@ -57,6 +57,10 @@ export function productInput(body = {}) {
     style: text(body.style, 100),
     type: text(body.type, 100),
     price: numberValue(body.price, "Preço"),
+    purchase_price:
+      body.purchase_price == null
+        ? undefined
+        : numberValue(body.purchase_price, "Valor de compra"),
     quantity: numberValue(body.quantity, "Quantidade", { integer: true }),
     expiration_date: dateValue(body.expiration_date),
   };

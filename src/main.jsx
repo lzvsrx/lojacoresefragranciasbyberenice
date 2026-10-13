@@ -717,11 +717,16 @@ const blankProduct = {
   style: "",
   type: "",
   price: "",
+  purchase_price: "0",
   quantity: "",
   expiration_date: "",
 };
 function ProductForm({ product, onClose, onSaved }) {
-  const [v, setV] = useState(product || blankProduct),
+  const [v, setV] = useState(
+      product
+        ? { ...product, purchase_price: product.purchase_price ?? 0 }
+        : blankProduct,
+    ),
     [file, setFile] = useState(),
     [saving, setSaving] = useState(false);
   const submit = async (e) => {
@@ -783,7 +788,7 @@ function ProductForm({ product, onClose, onSaved }) {
           />
         </label>
         <label>
-          Preço (R$)
+          Valor de venda (R$)
           <input
             required
             min="0"
@@ -791,6 +796,17 @@ function ProductForm({ product, onClose, onSaved }) {
             type="number"
             value={v.price}
             onChange={(e) => setV({ ...v, price: e.target.value })}
+          />
+        </label>
+        <label>
+          Valor de compra (R$)
+          <input
+            required
+            min="0"
+            step=".01"
+            type="number"
+            value={v.purchase_price}
+            onChange={(e) => setV({ ...v, purchase_price: e.target.value })}
           />
         </label>
         <label>
@@ -1186,7 +1202,8 @@ function Products({ canDelete }) {
                     className="primary"
                     disabled={
                       p.quantity <= 0 ||
-                      expirationStatus(p.expiration_date, today)?.status === "expired"
+                      expirationStatus(p.expiration_date, today)?.status ===
+                        "expired"
                     }
                     onClick={() => setSaleProduct(p)}
                   >
@@ -2475,10 +2492,7 @@ class ErrorBoundary extends React.Component {
           <img src="/assets/logo1.jpeg" />
           <h1>Não foi possível abrir esta tela</h1>
           <p>{this.state.error.message || "Ocorreu um erro inesperado."}</p>
-          <button
-            className="primary"
-            onClick={() => window.location.reload()}
-          >
+          <button className="primary" onClick={() => window.location.reload()}>
             Tentar novamente
           </button>
         </main>

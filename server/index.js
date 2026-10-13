@@ -42,8 +42,14 @@ const databasePath =
     ? path.join(process.env.TMPDIR || "/tmp", "store.db")
     : path.join(root, "server/data/store.db"));
 const remoteUrl = process.env.TURSO_DATABASE_URL;
-if (remoteUrl && !process.env.TURSO_AUTH_TOKEN && !remoteUrl.startsWith("file:"))
-  throw new Error("Configure TURSO_AUTH_TOKEN para conectar o banco persistente.");
+if (
+  remoteUrl &&
+  !process.env.TURSO_AUTH_TOKEN &&
+  !remoteUrl.startsWith("file:")
+)
+  throw new Error(
+    "Configure TURSO_AUTH_TOKEN para conectar o banco persistente.",
+  );
 const seedPath = path.join(root, "server/data/store.seed.db");
 if (!remoteUrl) {
   mkdirSync(path.dirname(databasePath), { recursive: true });
@@ -62,6 +68,11 @@ await db.pragma("journal_mode = WAL");
 await db.pragma("foreign_keys = ON");
 await db.pragma("busy_timeout = 5000");
 await db.transaction(async () => {
+  const productColumns = await db.prepare("PRAGMA table_info(products)").all();
+  if (!productColumns.some((column) => column.name === "purchase_price"))
+    await db.exec(
+      "ALTER TABLE products ADD COLUMN purchase_price REAL NOT NULL DEFAULT 0 CHECK(purchase_price >= 0)",
+    );
   if (
     !(await db.prepare("PRAGMA table_info(users)").all()).some(
       (column) => column.name === "session_version",
@@ -661,7 +672,7 @@ app.get("/api/catalog/quote", auth(["cliente"]), async (req, res) => {
 app.get("/api/products", auth(["admin", "funcionario"]), async (req, res) => {
   let rows = await db
     .prepare(
-      `SELECT p.id,p.name,p.brand,p.style,p.type,p.price,p.quantity,p.expiration_date,
+      `SELECT p.id,p.name,p.brand,p.style,p.type,p.price,p.purchase_price,p.quantity,p.expiration_date,
         CASE WHEN length(p.image)>0 THEN 1 ELSE 0 END image,
         COALESCE(s.sold_quantity,0) sold_quantity,COALESCE(s.sold_value,0) sold_value
         FROM products p LEFT JOIN (
@@ -691,7 +702,7 @@ app.post(
       throw inputError("Envie uma imagem PNG ou JPEG");
     const result = await db
       .prepare(
-        "INSERT INTO products(name,brand,style,type,price,quantity,expiration_date,image) VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO products(name,brand,style,type,price,purchase_price,quantity,expiration_date,image) VALUES(?,?,?,?,?,?,?,?,?)",
       )
       .run(
         b.name,
@@ -699,6 +710,7 @@ app.post(
         b.style,
         b.type,
         +b.price,
+        b.purchase_price ?? 0,
         +b.quantity,
         b.expiration_date,
         req.file?.buffer || null,
@@ -718,7 +730,7 @@ app.put(
       throw inputError("Envie uma imagem PNG ou JPEG");
     await db.transaction(async () => {
       const existing = await db
-        .prepare("SELECT quantity FROM products WHERE id=?")
+        .prepare("SELECT quantity,purchase_price FROM products WHERE id=?")
         .get(req.params.id);
       if (!existing) throw inputError("Produto não encontrado", 404);
       if (
@@ -732,7 +744,7 @@ app.put(
       if (req.file)
         await db
           .prepare(
-            "UPDATE products SET name=?,brand=?,style=?,type=?,price=?,quantity=?,expiration_date=?,image=? WHERE id=?",
+            "UPDATE products SET name=?,brand=?,style=?,type=?,price=?,purchase_price=?,quantity=?,expiration_date=?,image=? WHERE id=?",
           )
           .run(
             b.name,
@@ -740,6 +752,7 @@ app.put(
             b.style,
             b.type,
             +b.price,
+            b.purchase_price ?? existing.purchase_price,
             +b.quantity,
             b.expiration_date,
             req.file.buffer,
@@ -748,7 +761,7 @@ app.put(
       else
         await db
           .prepare(
-            "UPDATE products SET name=?,brand=?,style=?,type=?,price=?,quantity=?,expiration_date=? WHERE id=?",
+            "UPDATE products SET name=?,brand=?,style=?,type=?,price=?,purchase_price=?,quantity=?,expiration_date=? WHERE id=?",
           )
           .run(
             b.name,
@@ -756,6 +769,7 @@ app.put(
             b.style,
             b.type,
             +b.price,
+            b.purchase_price ?? existing.purchase_price,
             +b.quantity,
             b.expiration_date,
             req.params.id,

@@ -89,26 +89,39 @@ test("API regression suite uses an isolated database", async (t) => {
   const methods = await request("/payment-methods");
   const cash = methods.body.find((method) => method.code === "01").id;
 
-  await t.test("products returns every record newest first, including search results", async () => {
-    const ids = [];
-    for (let index = 0; index < 45; index++) {
-      const created = await request("/products", "POST", {
-        ...product, name: `Ordem de cadastro ${index}`,
-      });
-      assert.equal(created.status, 201);
-      ids.push(created.body.id);
-    }
-    try {
-      const all = await request("/products");
-      assert.equal(all.status, 200);
-      assert.deepEqual(all.body.map((item) => item.id), [...ids].reverse());
-      const searched = await request("/products?q=Ordem%20de%20cadastro");
-      assert.deepEqual(searched.body.map((item) => item.id), [...ids].reverse());
-    } finally {
-      for (const productId of ids)
-        assert.equal((await request(`/products/${productId}`, "DELETE")).status, 200);
-    }
-  });
+  await t.test(
+    "products returns every record newest first, including search results",
+    async () => {
+      const ids = [];
+      for (let index = 0; index < 45; index++) {
+        const created = await request("/products", "POST", {
+          ...product,
+          name: `Ordem de cadastro ${index}`,
+        });
+        assert.equal(created.status, 201);
+        ids.push(created.body.id);
+      }
+      try {
+        const all = await request("/products");
+        assert.equal(all.status, 200);
+        assert.deepEqual(
+          all.body.map((item) => item.id),
+          [...ids].reverse(),
+        );
+        const searched = await request("/products?q=Ordem%20de%20cadastro");
+        assert.deepEqual(
+          searched.body.map((item) => item.id),
+          [...ids].reverse(),
+        );
+      } finally {
+        for (const productId of ids)
+          assert.equal(
+            (await request(`/products/${productId}`, "DELETE")).status,
+            200,
+          );
+      }
+    },
+  );
 
   await t.test(
     "authentication, unknown routes and invalid product input",
@@ -122,6 +135,8 @@ test("API regression suite uses an isolated database", async (t) => {
         { name: " " },
         { price: -1 },
         { price: "NaN" },
+        { purchase_price: -1 },
+        { purchase_price: "NaN" },
         { quantity: 1.5 },
         { quantity: -1 },
         { expiration_date: "2026-02-30" },
@@ -140,6 +155,41 @@ test("API regression suite uses an isolated database", async (t) => {
       assert.equal(
         (await request("/products/9999", "PUT", product)).status,
         404,
+      );
+    },
+  );
+
+  await t.test(
+    "purchase and sale prices persist independently on create and edit",
+    async () => {
+      const created = await request("/products", "POST", {
+        ...product,
+        purchase_price: 6.25,
+      });
+      const find = async () =>
+        (await request("/products")).body.find((p) => p.id === created.body.id);
+      assert.equal((await find()).purchase_price, 6.25);
+      const form = new FormData();
+      for (const [key, value] of Object.entries({
+        ...product,
+        price: 20,
+        purchase_price: 8.5,
+      }))
+        form.append(key, value);
+      assert.equal(
+        (await request(`/products/${created.body.id}`, "PUT", form)).status,
+        200,
+      );
+      assert.equal((await find()).price, 20);
+      assert.equal((await find()).purchase_price, 8.5);
+      assert.equal(
+        (await request(`/products/${created.body.id}`, "PUT", product)).status,
+        200,
+      );
+      assert.equal((await find()).purchase_price, 8.5);
+      assert.equal(
+        (await request(`/products/${created.body.id}`, "DELETE")).status,
+        200,
       );
     },
   );

@@ -186,11 +186,11 @@ O backup copia o banco SQLite local usado pelo servidor.
 
 ## SQLite local e hospedagem
 
-O servidor usa exclusivamente `server/data/store.db` (ou o caminho definido em `DATABASE_PATH`). As variáveis antigas `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` não selecionam mais o banco da aplicação. O arquivo existente é preservado; a base de exemplo só é copiada se o banco operacional não existir.
+O servidor usa o banco persistente Turso quando `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` estão configurados no `.env` privado. Sem essas variáveis, usa `server/data/store.db` ou `DATABASE_PATH`. A Vercel deve usar as mesmas credenciais para compartilhar os dados; SQLite em `/tmp` é temporário.
 
-Execute `npm start` para usar o projeto compilado ou `npm run dev` para desenvolvimento. Cadastros, pedidos, vendas e estoque são gravados no arquivo SQLite local.
+Para atualizar a cópia SQLite local com o banco remoto, execute `npm run sync:from-cloud` na raiz do projeto. O comando confere registros e imagens, verifica a integridade e salva um backup anterior em `server/data/backups/`. A cópia representa o momento da sincronização; o banco remoto pode continuar recebendo alterações. O banco remoto e a base pública `store.seed.db` não são alterados.
 
-Na Vercel, o SQLite em `/tmp` permite cadastros, vendas e alterações, conforme solicitado, mas é temporário. Reinicializações, novas instâncias e novas publicações podem perder alterações ou apresentar bancos diferentes. Não há sincronização com o banco do computador. A API informa `writable: true` e `persistent: false`; o aviso não aparece na interface. Cada instância nova começa pela base pública de exemplo. Para preservar os dados em produção, o servidor precisa de disco persistente. Publicar no GitHub não transfere o banco operacional.
+O cadastro e a edição de produtos possuem **Valor de venda** (`price`) e **Valor de compra** (`purchase_price`), em reais. Produtos existentes recebem valor de compra zero até que a equipe informe o custo real. O valor de venda continua sendo utilizado na vitrine, pedidos e vendas. Os custos de compra ficam na API administrativa e não são enviados no catálogo público.
 
 ## Validade e ordem dos produtos
 
