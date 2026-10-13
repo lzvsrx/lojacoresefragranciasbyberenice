@@ -948,6 +948,40 @@ function Modal({ title, onClose, children }) {
     </div>
   );
 }
+function EditRecordedProduct({ productId, onSaved }) {
+  const [product, setProduct] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const open = async () => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const items = await api("/products");
+      const current = items.find((item) => item.id === Number(productId));
+      if (!current)
+        throw new Error("Produto não encontrado. Atualize a lista.");
+      setProduct(current);
+    } catch (error) {
+      alert(error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  const refresh = () => {
+    setProduct(null);
+    void onSaved().catch(reportLoadError);
+  };
+  return (
+    <>
+      <button type="button" onClick={open} disabled={loading}>
+        <Pencil size={15} /> {loading ? "Carregando…" : "Editar produto"}
+      </button>
+      {product && (
+        <ProductForm product={product} onClose={refresh} onSaved={refresh} />
+      )}
+    </>
+  );
+}
+
 function Products({ canDelete }) {
   const today = useStoreToday();
   const [saleProduct, setSaleProduct] = useState(null);
@@ -1109,6 +1143,7 @@ function Products({ canDelete }) {
                 <th>Preço unitário</th>
                 <th>Valor perdido</th>
                 <th>Responsável</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -1124,6 +1159,12 @@ function Products({ canDelete }) {
                   <td>{money(item.unit_price_cents / 100)}</td>
                   <td>{money(item.total_cents / 100)}</td>
                   <td>{item.user_name || "—"}</td>
+                  <td className="row-actions">
+                    <EditRecordedProduct
+                      productId={item.product_id}
+                      onSaved={load}
+                    />
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1727,6 +1768,7 @@ function CustomerOrders({
                   )}
                 </span>
                 <strong>{money(s.total_value)}</strong>
+                <EditRecordedProduct productId={s.product_id} onSaved={load} />
                 {canManage && s.order_status !== "Cancelado" && (
                   <button className="delete" onClick={() => cancelSale(s)}>
                     <Trash2 size={15} /> Cancelar
