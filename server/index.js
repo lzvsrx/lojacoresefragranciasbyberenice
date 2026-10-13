@@ -1464,7 +1464,7 @@ app.get(
       .all();
     const products = await db
       .prepare(
-        `SELECT p.id,p.name,p.brand,p.style,p.type,p.price,p.quantity,p.expiration_date,COALESCE(SUM(CASE WHEN s.order_status='Cancelado' THEN 0 ELSE s.quantity END),0) sold_quantity FROM products p LEFT JOIN sales s ON s.product_id=p.id GROUP BY p.id ORDER BY COALESCE(p.type,'Sem tipo'),p.brand,p.name`,
+        `SELECT p.id,p.name,p.brand,p.style,p.type,p.price,p.purchase_price,p.quantity,p.expiration_date,COALESCE(SUM(CASE WHEN s.order_status='Cancelado' THEN 0 ELSE s.quantity END),0) sold_quantity FROM products p LEFT JOIN sales s ON s.product_id=p.id GROUP BY p.id ORDER BY COALESCE(p.type,'Sem tipo'),p.brand,p.name`,
       )
       .all();
     const doc = new PDFDocument({
@@ -1493,30 +1493,73 @@ app.get(
         style: "currency",
         currency: "BRL",
       });
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(18)
-      .fillColor("#382c25")
-      .text("Cores & Fragrâncias by Berenice", {
+    const logoPath = path.join(root, "client/public/assets/logo1.jpeg");
+    const issuedAt = new Date().toLocaleString("pt-BR", {
+      timeZone: "America/Sao_Paulo",
+    });
+    const header = () => {
+      doc.save();
+      doc.rect(0, 0, doc.page.width, 119).fill("#fbf6e7");
+      doc.image(logoPath, 38, 20, {
+        fit: [82, 82],
         align: "center",
+        valign: "center",
       });
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(14)
-      .text("Relatório Completo de Produtos", {
-        align: "center",
-      });
-    doc
-      .font("Helvetica")
-      .fontSize(9)
-      .fillColor("#6f625a")
-      .text(
-        `Estoque e vendas • Emitido em ${new Date().toLocaleString("pt-BR")}`,
-        {
-          align: "center",
-        },
-      )
-      .moveDown(1.4);
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(17)
+        .fillColor("#382c25")
+        .text("Cores & Fragrâncias", 138, 29, { width: 419 });
+      doc
+        .font("Helvetica")
+        .fontSize(11)
+        .fillColor("#99623d")
+        .text("by Berenice", 138, 51, { width: 419 });
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(12)
+        .fillColor("#382c25")
+        .text("Relatório de produtos, vendas e perdas", 138, 73, {
+          width: 419,
+        });
+      doc
+        .font("Helvetica")
+        .fontSize(8)
+        .fillColor("#6f625a")
+        .text(`Emitido em ${issuedAt} | Horário de Brasília`, 138, 93, {
+          width: 419,
+        });
+      doc.moveTo(38, 119).lineTo(557, 119).strokeColor("#c5a76c").stroke();
+      doc.restore();
+      doc.x = 38;
+      doc.y = 140;
+    };
+    doc.on("pageAdded", header);
+    header();
+    const stockUnits = products.reduce((sum, p) => sum + p.quantity, 0);
+    const soldUnits = products.reduce((sum, p) => sum + p.sold_quantity, 0);
+    const totalLoss = losses.reduce((sum, row) => sum + row.total_cents, 0);
+    const summary = [
+      ["PRODUTOS", String(products.length)],
+      ["EM ESTOQUE", `${stockUnits} un.`],
+      ["VENDIDOS", `${soldUnits} un.`],
+      ["PERDAS REGISTRADAS", brl(totalLoss / 100)],
+    ];
+    summary.forEach(([label, value], index) => {
+      const x = 38 + index * 132;
+      doc.roundedRect(x, 140, 123, 53, 5).fill("#f7f3ed");
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(7)
+        .fillColor("#6f625a")
+        .text(label, x + 10, 151, { width: 103 });
+      doc
+        .fontSize(12)
+        .fillColor("#382c25")
+        .text(value, x + 10, 168, { width: 103 });
+    });
+    doc.x = 38;
+    doc.y = 210;
     let currentType = null;
     for (const product of products) {
       const type = product.type || "Sem tipo";
@@ -1531,7 +1574,18 @@ app.get(
           .text(`Tipo: ${type}`)
           .moveDown(0.35);
       }
-      if (doc.y > 735) doc.addPage();
+      doc.font("Helvetica-Bold").fontSize(9.5);
+      const productHeight =
+        doc.heightOfString(`#${product.id}  ${product.name}`, { width: 519 }) +
+        doc
+          .font("Helvetica")
+          .fontSize(8.5)
+          .heightOfString(
+            `Marca: ${product.brand || "—"}  |  Estilo: ${product.style || "—"}`,
+            { width: 519 },
+          ) +
+        55;
+      if (doc.y + productHeight > 765) doc.addPage();
       doc
         .font("Helvetica-Bold")
         .fontSize(9.5)
@@ -1544,8 +1598,11 @@ app.get(
         .fontSize(8.5)
         .fillColor("#5f544d")
         .text(
-          `Marca: ${product.brand || "—"}  |  Estilo: ${product.style || "—"}  |  Preço: ${brl(product.price)}`,
+          `Marca: ${product.brand || "—"}  |  Estilo: ${product.style || "—"} `,
         );
+      doc.text(
+        `Compra: ${brl(product.purchase_price)}  |  Venda: ${brl(product.price)}`,
+      );
       doc.text(
         `Estoque: ${product.quantity || 0} un.  |  Validade: ${product.expiration_date || "—"}  |  Vendido: ${product.sold_quantity > 0 ? "Sim" : "Não"}  |  Qtd. vendida: ${product.sold_quantity || 0}`,
       );
@@ -1641,7 +1698,7 @@ app.get(
         .text(
           `Praça Pres. João Pessoa, 66 - Centro, Varginha - MG • WhatsApp +55 35 9821-3049 • Página ${i + 1} de ${range.count}`,
           38,
-          805,
+          785,
           {
             width: 519,
             align: "center",

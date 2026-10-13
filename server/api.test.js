@@ -536,6 +536,7 @@ test("API regression suite uses an isolated database", async (t) => {
       const pdfBytes = Buffer.from(await pdf.arrayBuffer());
       assert.equal(pdfBytes.subarray(0, 5).toString(), "%PDF-");
       assert.ok(pdfBytes.length > 1000);
+      assert.match(pdfBytes.toString("latin1"), /\/Subtype \/Image/);
       const dashboard = await request("/dashboard");
       assert.deepEqual(dashboard.body.expirationLosses, {
         total_cents: 3702,
