@@ -12,7 +12,7 @@ if (process.env.TURSO_DATABASE_URL)
   );
 const source =
   process.env.DATABASE_PATH || path.join(root, "server/data/store.db");
-const folder = path.join(root, "server/data/backups");
+const folder = process.env.BACKUP_DIR || path.resolve(root, "../coresefragrancias-bancos-arquivados");
 mkdirSync(folder, { recursive: true });
 const target = path.join(
   folder,

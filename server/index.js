@@ -17,7 +17,6 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { randomBytes, randomUUID } from "crypto";
 import {
-  copyFileSync,
   existsSync,
   readFileSync,
   writeFileSync,
@@ -50,14 +49,11 @@ if (
   throw new Error(
     "Configure TURSO_AUTH_TOKEN para conectar o banco persistente.",
   );
-const seedPath = path.join(root, "server/data/store.seed.db");
 if (!remoteUrl) {
   mkdirSync(path.dirname(databasePath), { recursive: true });
 }
 if (!remoteUrl && !existsSync(databasePath)) {
-  if (!existsSync(seedPath))
-    throw new Error("Banco inicial server/data/store.seed.db não encontrado");
-  copyFileSync(seedPath, databasePath);
+  throw new Error("Banco local ausente. Execute npm run sync:from-cloud para restaurar server/data/store.db.");
 }
 const db = await createDatabase({
   filename: databasePath,

@@ -1,19 +1,19 @@
-# Cópia completa criptografada
+# Backup completo criptografado
 
-`store-completo-2026-10-10.db.enc` contém o banco local completo: 883 produtos, 367 vendas, 26 perdas por vencimento, 26 movimentações, 8 formas de pagamento, 3 usuários e as demais tabelas, inclusive imagens e credenciais armazenadas no banco. A cópia foi validada por tabela e passou nas verificações de integridade e chaves estrangeiras.
+A copia atual e `store-unificado-2026-10-15.db.enc`: banco local consolidado e conferido contra o Turso em 15/10/2026, com 890 produtos, 369 vendas, 29 movimentacoes, 26 perdas por vencimento, 8 formas de pagamento e 3 usuarios. Inclui todas as tabelas e imagens.
 
-O arquivo usa compressão gzip e criptografia autenticada AES-256-GCM com chave aleatória de 256 bits. A chave está **somente no computador**, em `%LOCALAPPDATA%/CoreseFragrancias/backup-keys/store-completo-2026-10-10.key`, fora do repositório e da pasta OneDrive. Guarde uma segunda cópia da chave em local privado: sem ela, o backup não pode ser recuperado.
+Formato: gzip + AES-256-GCM. A chave fica somente no computador, em `%LOCALAPPDATA%/CoreseFragrancias/backup-keys/store-unificado-2026-10-15.key`, fora do repositorio e do OneDrive. Guarde uma segunda copia privada da chave; ela e necessaria para restaurar o banco.
 
-Para verificar a recuperação contra a cópia local:
-
-```powershell
-node scripts/encrypted-backup.js verify backups-encrypted/store-completo-2026-10-10.db.enc server/data/backups/store-completo-2026-10-10.db "$env:LOCALAPPDATA/CoreseFragrancias/backup-keys/store-completo-2026-10-10.key"
-```
-
-Para restaurar em um arquivo novo, sem substituir o banco em uso:
+Verificar a copia contra o banco local:
 
 ```powershell
-node scripts/encrypted-backup.js restore backups-encrypted/store-completo-2026-10-10.db.enc server/data/backups/store-restaurado.db "$env:LOCALAPPDATA/CoreseFragrancias/backup-keys/store-completo-2026-10-10.key"
+node scripts/encrypted-backup.js verify backups-encrypted/store-unificado-2026-10-15.db.enc server/data/store.db "$env:LOCALAPPDATA/CoreseFragrancias/backup-keys/store-unificado-2026-10-15.key"
 ```
 
-Esta cópia é um backup. Ela não substitui automaticamente a base da aplicação na Vercel nem torna o armazenamento da hospedagem persistente.
+Restaurar em um arquivo novo (o destino nao pode existir):
+
+```powershell
+node scripts/encrypted-backup.js restore backups-encrypted/store-unificado-2026-10-15.db.enc ../coresefragrancias-bancos-arquivados/store-restaurado.db "$env:LOCALAPPDATA/CoreseFragrancias/backup-keys/store-unificado-2026-10-15.key"
+```
+
+O backup de 10/10/2026 permanece como historico e usa sua chave original. A aplicacao hospedada usa o Turso; os arquivos criptografados nao sao carregados automaticamente.

@@ -12,7 +12,7 @@ test("API regression suite uses an isolated database", async (t) => {
   process.env.NODE_ENV = "test";
   delete process.env.VERCEL;
   process.env.DATABASE_PATH = path.join(folder, "store.db");
-  const seed = new Database("server/data/store.seed.db", { readonly: true });
+  const seed = new Database("server/data/store.db", { readonly: true });
   const setup = new Database(process.env.DATABASE_PATH);
   // Copy only the schema, never operational records or customer data.
   for (const row of seed

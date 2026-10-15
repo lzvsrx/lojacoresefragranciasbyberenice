@@ -14,7 +14,7 @@ test("Vercel temporary SQLite allows writes and reports non-persistent storage",
   process.env.DATABASE_PATH = path.join(folder, "store.db");
   delete process.env.TURSO_DATABASE_URL;
   delete process.env.TURSO_AUTH_TOKEN;
-  const source = new Database("server/data/store.seed.db", { readonly: true });
+  const source = new Database("server/data/store.db", { readonly: true });
   const setup = new Database(process.env.DATABASE_PATH);
   for (const row of source
     .prepare(

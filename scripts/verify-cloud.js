@@ -21,6 +21,18 @@ const normalize = (value) => {
 try {
   const tables = source.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all();
   for (const { name } of tables) {
+    // A running server can advance AUTOINCREMENT through INSERT OR IGNORE
+    // without changing any rows. Never require the remote counter to decrease.
+    if (name === "sqlite_sequence") {
+      const remote = (await client.execute("SELECT name,seq FROM sqlite_sequence")).rows;
+      const local = source.prepare("SELECT name,seq FROM sqlite_sequence").all();
+      if (remote.length !== local.length || local.some((row) => {
+        const match = remote.find((entry) => entry.name === row.name);
+        return !match || Number(match.seq) < row.seq;
+      })) throw new Error("Sequencias remotas ausentes ou inferiores ao banco local");
+      console.log("sqlite_sequence: contadores remotos conferidos, sem regressao de IDs");
+      continue;
+    }
     const columns = source.prepare(`PRAGMA table_info(${quote(name)})`).all();
     const primary = columns.find((c) => c.pk)?.name || (name === "sqlite_sequence" ? "name" : null);
     if (!primary) throw new Error(`Tabela sem chave para verificação: ${name}`);
@@ -52,7 +64,7 @@ try {
     console.log(`${name}: ${count} registros idênticos, incluindo BLOBs`);
   }
   if ((await client.execute("PRAGMA foreign_key_check")).rows.length) throw new Error("Chaves estrangeiras inconsistentes");
-  console.log("Verificação integral concluída sem diferenças.");
+  console.log("Verificacao concluida: registros identicos e sequencias remotas sem regressao.");
 } finally {
   source.close(); client.close();
 }

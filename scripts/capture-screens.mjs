@@ -20,7 +20,7 @@ process.env.NODE_ENV = "test";
 delete process.env.VERCEL;
 delete process.env.TURSO_DATABASE_URL;
 delete process.env.TURSO_AUTH_TOKEN;
-const source = new Database(path.join(root, "server/data/store.seed.db"), {
+const source = new Database(path.join(root, "server/data/store.db"), {
   readonly: true,
 });
 const setup = new Database(process.env.DATABASE_PATH);

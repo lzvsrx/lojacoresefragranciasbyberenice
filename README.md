@@ -166,19 +166,19 @@ Não publique `.env`, tokens ou chaves. Sem `JWT_SECRET` no modo local, o servid
 
 ## Banco local, privacidade e backup
 
-O banco operacional padrão fica em `server/data/store.db`. Na primeira execução, se ele não existir, o servidor copia `server/data/store.seed.db`.
+O banco operacional local fica em `server/data/store.db`, o unico arquivo SQLite mantido no projeto. Se estiver ausente, execute `npm run sync:from-cloud` para restaurar a copia do Turso.
 
 Para usar os mesmos dados no computador e na Vercel, crie um banco libSQL vazio no Turso, configure `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` no `.env` local e execute `npm run migrate:cloud`. A migração usa um backup consistente, copia registros, imagens, índices, sequências, views e triggers e confere contagens e chaves estrangeiras. Depois configure essas duas variáveis na Vercel e publique novamente. Reinicie o servidor local para ele passar a usar o mesmo banco remoto. O SQLite original permanece como cópia local; não há sincronização automática entre arquivos SQLite separados.
 
-Sem banco remoto configurado, a Vercel continua usando uma cópia temporária da base pública. Gravações nesse modo não são persistentes e não correspondem ao banco operacional do computador. O arquivo criptografado no repositório é um backup e não é carregado automaticamente pela aplicação.
+A Vercel deve usar o Turso. Sem banco remoto ou banco local restaurado, o servidor informa que a base esta ausente. O backup criptografado no GitHub permite recuperar todos os dados com a chave privada e nao e carregado automaticamente.
 
-A base pública contém catálogo, imagens e histórico anonimizado. Banco operacional, backups e credenciais são ignorados pelo Git. Enviar o código ao GitHub não envia os dados atuais da loja.
+O banco operacional e as credenciais sao ignorados pelo Git. A copia completa atualizada e publicada somente com criptografia em `backups-encrypted/`; as chaves permanecem fora do repositorio.
 
 ```bash
 npm run backup
 ```
 
-O comando utiliza o mecanismo de backup do SQLite, incluindo alterações em WAL, e cria uma cópia consistente em `server/data/backups/`. Guarde também uma cópia fora do computador.
+O comando utiliza o mecanismo de backup do SQLite, incluindo alterações em WAL, e cria uma cópia consistente em `../coresefragrancias-bancos-arquivados/` (ou `BACKUP_DIR`). Guarde também uma cópia fora do computador.
 
 O backup copia o banco SQLite local usado pelo servidor.
 
@@ -188,7 +188,7 @@ O backup copia o banco SQLite local usado pelo servidor.
 
 O servidor usa o banco persistente Turso quando `TURSO_DATABASE_URL` e `TURSO_AUTH_TOKEN` estão configurados no `.env` privado. Sem essas variáveis, usa `server/data/store.db` ou `DATABASE_PATH`. A Vercel deve usar as mesmas credenciais para compartilhar os dados; SQLite em `/tmp` é temporário.
 
-Para atualizar a cópia SQLite local com o banco remoto, execute `npm run sync:from-cloud` na raiz do projeto. O comando confere registros e imagens, verifica a integridade e salva um backup anterior em `server/data/backups/`. A cópia representa o momento da sincronização; o banco remoto pode continuar recebendo alterações. O banco remoto e a base pública `store.seed.db` não são alterados.
+Para atualizar a cópia SQLite local com o banco remoto, execute `npm run sync:from-cloud` na raiz do projeto. O comando confere registros e imagens, verifica a integridade e salva um backup anterior em `../coresefragrancias-bancos-arquivados/` (ou `BACKUP_DIR`). A cópia representa o momento da sincronização; o banco remoto pode continuar recebendo alterações. O banco remoto nao e alterado por esse comando.
 
 O cadastro e a edição de produtos possuem **Valor de venda** (`price`) e **Valor de compra** (`purchase_price`), em reais. Produtos existentes recebem valor de compra zero até que a equipe informe o custo real. O valor de venda continua sendo utilizado na vitrine, pedidos e vendas. Os custos de compra ficam na API administrativa e não são enviados no catálogo público.
 

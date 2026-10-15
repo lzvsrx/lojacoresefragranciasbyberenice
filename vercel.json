@@ -1,7 +1,7 @@
 {
   "functions": {
     "api/index.js": {
-      "includeFiles": "{server/data/store.seed.db,client/public/assets/logo1.jpeg}",
+      "includeFiles": "client/public/assets/logo1.jpeg",
       "maxDuration": 30
     }
   },

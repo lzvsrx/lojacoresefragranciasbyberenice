@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 if (existsSync(".env")) loadEnvFile(".env");
 if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN)
   throw new Error("Configure o banco remoto no .env privado.");
-const folder = "server/data/backups";
+const folder = process.env.BACKUP_DIR || path.resolve("../coresefragrancias-bancos-arquivados");
 mkdirSync(folder, { recursive: true });
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const destination = process.env.DATABASE_PATH || "server/data/store.db";

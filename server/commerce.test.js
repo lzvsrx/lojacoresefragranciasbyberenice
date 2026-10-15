@@ -28,7 +28,7 @@ test("online commerce uses isolated data and atomic stock", async (t) => {
   process.env.NODE_ENV = "test";
   delete process.env.VERCEL;
   process.env.DATABASE_PATH = path.join(folder, "store.db");
-  const source = new Database("server/data/store.seed.db", { readonly: true }),
+  const source = new Database("server/data/store.db", { readonly: true }),
     setup = new Database(process.env.DATABASE_PATH);
   for (const row of source
     .prepare(
