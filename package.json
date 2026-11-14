@@ -18,32 +18,37 @@
     "payments:check": "node scripts/configure-payments.mjs --verify"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": "26.x",
+    "npm": ">=12.2.2"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
     "@mercadopago/sdk-js": "^0.0.3",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^13.0.3",
+    "better-sqlite3": "^13.2.0",
     "cors": "^2.8.6",
     "express": "^5.3.0",
-    "express-rate-limit": "^8.7.1",
+    "express-rate-limit": "^8.7.4",
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
-    "lucide-react": "^1.55.0",
+    "lucide-react": "^1.73.0",
     "mercadopago": "^3.6.2",
     "multer": "^2.5.0",
-    "papaparse": "^5.7.0",
+    "papaparse": "^5.7.1",
     "pdfkit": "^0.20.2",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "react-router-dom": "^7.18.4",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.5",
     "sharp": "^0.35.5"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^6.1.2",
-    "concurrently": "^10.0.6",
-    "prettier": "^3.9.10",
-    "vite": "^8.3.4"
-  }
+    "@vitejs/plugin-react": "^6.3.0",
+    "concurrently": "^10.0.7",
+    "prettier": "^3.10.1",
+    "vite": "^8.3.8"
+  },
+  "allowScripts": {
+    "better-sqlite3@13.2.0": false
+  },
+  "packageManager": "npm@12.2.2"
 }

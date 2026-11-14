@@ -43,9 +43,11 @@ Pagamentos e referências fiscais são registros internos. O projeto não realiz
 
 ## Tecnologias
 
-Requer **Node.js 22.12 ou superior**; recomendado: Node.js 24.
+Use **Node.js 26.13.1 LTS** e **npm 12.2.2**. A versão do Node está em `.nvmrc`, e a Vercel usa a linha `26.x` definida em `package.json`. Com nvm, execute `nvm install 26.13.1` e `nvm use 26.13.1`; depois, `npm install --global npm@12.2.2`.
 
-As dependências foram atualizadas. As versões declaradas incluem React 19.3, Vite 8.3, Express 5.3, better-sqlite3 13 e cliente libSQL 0.18. O `package-lock.json` registra as versões instaladas.
+As dependências foram conferidas no registro npm e atualizadas para as versões estáveis mais recentes em 14/11/2026. As versões declaradas incluem React 19.3.1, Vite 8.3.8, Express 5.3.0, better-sqlite3 13.2.0 e cliente libSQL 0.18.0. O `package-lock.json` registra as versões instaladas.
+
+O SQLite 13.2.0 já inclui binários para Windows, Linux e macOS em x64/arm64. O campo `allowScripts` bloqueia a compilação implícita dessa versão durante a instalação com npm, usando os binários fornecidos pelo pacote. Ao atualizar essa biblioteca novamente, revise a política junto com o lockfile.
 
 ## Instalar e abrir
 
@@ -294,7 +296,7 @@ npm audit
 
 Os testes usam bancos temporários isolados. O adaptador libSQL foi testado com o cliente oficial em arquivo local; isso não substitui a validação de um Turso real.
 
-O workflow `.github/workflows/ci.yml` está configurado para instalação, testes, compilação e auditoria de vulnerabilidades altas, com Node.js 22 e 24, em pushes para `main` e pull requests. Consulte o resultado das execuções na aba Actions do repositório.
+O workflow `.github/workflows/ci.yml` está configurado para instalação, testes, compilação e auditoria de vulnerabilidades moderadas ou superiores, com Node.js 26.13.1 e npm 12.2.2, em pushes para `main` e pull requests. Consulte o resultado das execuções na aba Actions do repositório.
 
 ## Estrutura
 
