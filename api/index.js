@@ -1,3 +1,5 @@
+import { startupErrorCode } from "../server/startup-errors.js";
+
 let application;
 export default async function handler(req, res) {
   try {
@@ -8,7 +10,7 @@ export default async function handler(req, res) {
     console.error(
       JSON.stringify({
         event: "application.start_failed",
-        code: typeof error.code === "string" ? error.code : "STARTUP_ERROR",
+        code: typeof error.code === "string" ? error.code : startupErrorCode(error),
       }),
     );
     res.status(503).json({
