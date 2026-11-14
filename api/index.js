@@ -10,7 +10,8 @@ export default async function handler(req, res) {
     console.error(
       JSON.stringify({
         event: "application.start_failed",
-        code: typeof error.code === "string" ? error.code : startupErrorCode(error),
+        code:
+          typeof error.code === "string" ? error.code : startupErrorCode(error),
       }),
     );
     res.status(503).json({

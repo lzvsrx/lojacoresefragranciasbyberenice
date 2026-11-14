@@ -9,6 +9,7 @@ import {
   auditWriter,
 } from "./security.js";
 import { sessionService } from "./sessions.js";
+import { protectDefaultAdmin } from "./admin-bootstrap.js";
 import { DatabaseRateLimitStore } from "./rate-limit-store.js";
 import { sanitizeUploadedImage, createUploadGate } from "./uploads.js";
 import cors from "cors";
@@ -254,13 +255,8 @@ const secret = signingSecret(
   security.production,
 );
 if (security.production) {
-  const initialAdmin = await db
-    .prepare("SELECT password FROM users WHERE username='admin'")
-    .get();
-  if (initialAdmin && (await bcrypt.compare("admin123", initialAdmin.password)))
-    throw new Error(
-      "Troque a senha de exemplo do administrador antes de iniciar em produção",
-    );
+  if (await protectDefaultAdmin(db))
+    console.info(JSON.stringify({ event: "security.default_admin_rotated" }));
 }
 await installSecurityTables(db);
 const audit = auditWriter(db, secret);

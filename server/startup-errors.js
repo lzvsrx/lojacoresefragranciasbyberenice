@@ -12,5 +12,7 @@ export function startupErrorCode(error) {
     [/^Banco local ausente/, "CONFIG_LOCAL_DATABASE_MISSING"],
     [/^Troque a senha de exemplo/, "CONFIG_DEFAULT_ADMIN_PASSWORD"],
   ];
-  return known.find(([pattern]) => pattern.test(message))?.[1] || "STARTUP_ERROR";
+  return (
+    known.find(([pattern]) => pattern.test(message))?.[1] || "STARTUP_ERROR"
+  );
 }

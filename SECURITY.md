@@ -48,7 +48,9 @@ Backups e cópias de sincronização contêm dados pessoais e devem permanecer f
 
 ## Validação contínua e limites
 
-Execute `npm ci`, `npm test`, `npm run build` e `npm run security:check`. O CI repete os checks em Node 22 e 24, incluindo auditoria semanal de dependências. Os testes cobrem sessões, separação de portais, CSRF, revogação, inatividade, uploads falsificados, memória de uploads, contadores concorrentes e confirmação de pagamentos.
+Execute `npm ci`, `npm test`, `npm run build` e `npm run security:check`. O CI repete os checks em Node 26.13.1 e npm 12.2.2, incluindo auditoria semanal de dependências. Os testes cobrem sessões, separação de portais, CSRF, revogação, inatividade, uploads falsificados, memória de uploads, contadores concorrentes e confirmação de pagamentos.
+
+A conta `admin` com senha de exemplo impede a inicialização em produção. Para recuperar uma instalação antiga, o operador da hospedagem pode fornecer temporariamente `ADMIN_BOOTSTRAP_PASSWORD_HASH`, um hash bcrypt com custo entre 12 e 16 de uma senha forte gerada privadamente. A aplicação troca exclusivamente a senha de exemplo e invalida suas sessões; contas com senha já alterada permanecem protegidas. Remova a variável da hospedagem após a recuperação. A senha gerada nesta recuperação fica no `.env` local, em `ADMIN_RECOVERY_PASSWORD`, e não deve ser publicada nem enviada em mensagens. Os logs de inicialização identificam erros conhecidos por códigos fixos, sem registrar as mensagens que possam conter segredos.
 
 A verificação opcional `node scripts/check-security-browser.mjs` exercita os dois portais em Edge sem interface, incluindo recarregamento, cookies inacessíveis ao JavaScript e revogação de cookies capturados. Requer o build, Edge e Playwright instalado separadamente; `PLAYWRIGHT_MODULE` pode apontar para seu `index.mjs`. Usa somente banco e credenciais temporários.
 
