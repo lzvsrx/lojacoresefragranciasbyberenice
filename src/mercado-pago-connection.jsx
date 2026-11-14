@@ -3,7 +3,9 @@ import { CreditCard, ExternalLink } from "lucide-react";
 
 const returnMessages = {
   connected:
-    "Conta vinculada. Os pagamentos pelo Mercado Pago foram ativados na loja.",
+    "Conta conectada. As formas de pagamento foram cadastradas e salvas automaticamente.",
+  connected_sync_pending:
+    "Conta conectada e salva. As formas de pagamento serão sincronizadas automaticamente assim que o Mercado Pago responder.",
   cancelled: "A autorização foi cancelada. Você pode tentar novamente.",
   failed:
     "Não foi possível vincular a conta. Inicie uma nova autorização; confira a URL de retorno e os dados da aplicação.",
@@ -37,6 +39,28 @@ export default function MercadoPagoConnection({ api, gateway, onChanged }) {
   useEffect(() => {
     reload().catch((e) => setError(e.message));
   }, [api]);
+  useEffect(() => {
+    if (
+      !connection?.connected ||
+      connection.payment_methods?.status !== "pending"
+    )
+      return;
+    const timer = setTimeout(
+      () => reload().catch((e) => setError(e.message)),
+      Math.max(
+        1000,
+        Math.min(
+          65000,
+          (connection.payment_methods.retry_at || 0) - Date.now() + 1000,
+        ),
+      ),
+    );
+    return () => clearTimeout(timer);
+  }, [
+    connection?.connected,
+    connection?.payment_methods?.status,
+    connection?.payment_methods?.retry_at,
+  ]);
   const connect = async () => {
     const result = await api("/mercado-pago/oauth/start", {
       method: "POST",
@@ -77,9 +101,14 @@ export default function MercadoPagoConnection({ api, gateway, onChanged }) {
                 : "Vincule sua conta Mercado Pago"}
         </b>
         <p>
-          Clique em conectar, entre no site do Mercado Pago e autorize a loja.
-          Ao voltar, sua conta ficará registrada aqui para receber os pedidos.
+          Autorize sua conta no site do Mercado Pago. Na volta, a loja cadastra
+          e salva as formas de pagamento automaticamente.
         </p>
+        <ol className="mp-connection-steps" aria-label="Como conectar">
+          <li>Autorizar a conta</li>
+          <li>Importar as formas</li>
+          <li>Salvar e receber</li>
+        </ol>
         {connection?.account && (
           <p>
             <strong>{connection.account.name}</strong> · Conta{" "}
@@ -107,13 +136,14 @@ export default function MercadoPagoConnection({ api, gateway, onChanged }) {
               ? connection.connected
                 ? "Autorizar novamente no Mercado Pago"
                 : "Conectar Mercado Pago"
-              : "Preparar conexão com Mercado Pago"}{" "}
+              : "Conectar Mercado Pago"}{" "}
           <ExternalLink size={16} />
         </button>
         {!connection?.application_saved && (
           <p>
-            A aplicação da loja precisa ser preparada uma única vez. Depois, a
-            conexão é feita diretamente no Mercado Pago.
+            Primeiro acesso: os dados da aplicação precisam ser informados uma
+            única vez. As formas de pagamento serão importadas após a
+            autorização.
           </p>
         )}
         {connection?.application_saved && (
@@ -147,11 +177,11 @@ export default function MercadoPagoConnection({ api, gateway, onChanged }) {
               });
             }}
           >
-            <h3>Preparar a aplicação da loja</h3>
+            <h3>Configuração inicial · uma única vez</h3>
             <p>
-              Abra suas integrações no Mercado Pago, escolha a aplicação da loja
-              e habilite OAuth com PKCE e acesso offline. Cadastre a URL de
-              retorno abaixo e as notificações de pagamento.
+              O Mercado Pago exige estes dados para permitir a autorização.
+              Depois de salvar, você conecta sua conta pelo site deles; não
+              precisa cadastrar Pix, cartões ou bandeiras individualmente.
             </p>
             <a
               className="button"
@@ -161,14 +191,22 @@ export default function MercadoPagoConnection({ api, gateway, onChanged }) {
             >
               Abrir integrações no Mercado Pago <ExternalLink size={16} />
             </a>
-            <label>
-              URL de retorno{" "}
-              <input readOnly value={connection?.callback_url || ""} />
-            </label>
-            <label>
-              URL das notificações{" "}
-              <input readOnly value={gateway?.webhook_url || ""} />
-            </label>
+            <details className="mp-registration-urls">
+              <summary>
+                URLs para cadastrar na aplicação do Mercado Pago
+              </summary>
+              <p>
+                Habilite OAuth com PKCE e acesso offline no painel do provedor.
+              </p>
+              <label>
+                URL de retorno{" "}
+                <input readOnly value={connection?.callback_url || ""} />
+              </label>
+              <label>
+                URL das notificações{" "}
+                <input readOnly value={gateway?.webhook_url || ""} />
+              </label>
+            </details>
             <label>
               ID da aplicação (Client ID)
               <input
@@ -242,6 +280,25 @@ export default function MercadoPagoConnection({ api, gateway, onChanged }) {
             </button>
           </form>
         )}
+        <PaymentMethodRegistry
+          connection={connection}
+          busy={busy}
+          onSync={() =>
+            action(async () => {
+              const result = await api("/mercado-pago/methods/sync", {
+                method: "POST",
+                body: {},
+              });
+              await reload();
+              await onChanged();
+              setMessage(
+                result.status === "ready"
+                  ? "Formas de pagamento atualizadas e salvas."
+                  : "A sincronização está pendente. Vamos tentar novamente automaticamente.",
+              );
+            })
+          }
+        />
         {gateway?.sandbox && <p>Ambiente de testes ativado.</p>}
         <p>
           O cliente paga no Mercado Pago, e a aprovação é registrada
@@ -297,5 +354,94 @@ export default function MercadoPagoConnection({ api, gateway, onChanged }) {
         {error && <p role="alert">{error}</p>}
       </div>
     </div>
+  );
+}
+
+const typeNames = {
+  bank_transfer: "Transferência / Pix",
+  credit_card: "Cartão de crédito",
+  debit_card: "Cartão de débito",
+  prepaid_card: "Cartão pré-pago",
+  account_money: "Saldo Mercado Pago",
+  ticket: "Boleto",
+  atm: "Caixa eletrônico",
+  digital_currency: "Moeda digital",
+  digital_wallet: "Carteira digital",
+};
+
+function PaymentMethodRegistry({ connection, busy, onSync }) {
+  const registry = connection?.payment_methods;
+  if (!connection?.account)
+    return (
+      <div className="mp-methods-preview">
+        <strong>Cadastro automático após a conexão</strong>
+        <p>
+          A loja busca os meios informados pelo Mercado Pago e mantém o cadastro
+          salvo. A escolha do cliente e as parcelas são apresentadas no checkout
+          do Mercado Pago.
+        </p>
+      </div>
+    );
+  const methods = registry?.items || [],
+    enabled = methods.filter((m) => m.enabled);
+  return (
+    <section
+      className="mp-method-registry"
+      aria-label="Formas de pagamento importadas"
+    >
+      <div className="mp-method-registry-heading">
+        <div>
+          <h3>Formas de pagamento salvas</h3>
+          <p>
+            {methods.length} cadastradas · {enabled.length} disponíveis para o
+            checkout
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={busy || !connection.connected}
+          onClick={onSync}
+        >
+          Atualizar formas
+        </button>
+      </div>
+      {registry?.synced_at && (
+        <p>
+          Última sincronização:{" "}
+          {new Date(registry.synced_at).toLocaleString("pt-BR")}
+        </p>
+      )}
+      {registry?.status !== "ready" && (
+        <p role="status">
+          Sincronização pendente. Uma nova tentativa será feita automaticamente.
+        </p>
+      )}
+      {!!methods.length && (
+        <ul className="mp-imported-methods">
+          {methods.map((method) => (
+            <li key={method.id}>
+              <div>
+                <strong>{method.name}</strong>
+                <small>{typeNames[method.type] || method.type}</small>
+              </div>
+              <span className={`pill ${method.enabled ? "green" : ""}`}>
+                {method.enabled
+                  ? "Cadastrada"
+                  : method.status === "active"
+                    ? "Não oferecida na loja"
+                    : method.status === "removed"
+                      ? "Removida pelo provedor"
+                      : "Indisponível no provedor"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p>
+        As opções finais dependem da conta, do comprador e do valor no Mercado
+        Pago. Boleto e caixa eletrônico permanecem fora do checkout por causa da
+        reserva de estoque de 24 horas.
+      </p>
+    </section>
   );
 }

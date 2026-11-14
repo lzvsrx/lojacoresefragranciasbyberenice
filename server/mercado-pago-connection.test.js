@@ -48,10 +48,42 @@ test("OAuth account linking, state protection, encrypted storage and refresh lif
     refreshes = 0,
     invalidRefresh = false,
     offline = true;
+  let methodsUnavailable = false;
+  const paymentMethods = [
+    {
+      id: "pix",
+      name: "Pix",
+      payment_type_id: "bank_transfer",
+      status: "active",
+      min_allowed_amount: 0.01,
+    },
+    {
+      id: "visa",
+      name: "Visa",
+      payment_type_id: "credit_card",
+      status: "active",
+    },
+    {
+      id: "amex",
+      name: "American Express",
+      payment_type_id: "credit_card",
+      status: "temporally_deactive",
+    },
+    {
+      id: "bolbradesco",
+      name: "Boleto",
+      payment_type_id: "ticket",
+      status: "active",
+    },
+  ];
   let refreshBody, exchangeBody;
   const provider = async (input, options = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     assert.equal(url.origin, "https://api.mercadopago.com");
+    if (url.pathname === "/v1/payment_methods")
+      return methodsUnavailable
+        ? Response.json({ error: "unavailable" }, { status: 503 })
+        : Response.json(paymentMethods);
     if (url.pathname === "/users/me")
       return Response.json({
         id: Number(seller),
@@ -95,7 +127,7 @@ test("OAuth account linking, state protection, encrypted storage and refresh lif
       : realFetch(input, options);
   const db = await createDatabase({ url: "file::memory:" });
   await db.exec(
-    "CREATE TABLE payment_methods(code TEXT,active INTEGER,updated_at TEXT); INSERT INTO payment_methods VALUES('MP',0,NULL)",
+    "CREATE TABLE payment_methods(code TEXT PRIMARY KEY,name TEXT,active INTEGER,requires_reference INTEGER,max_installments INTEGER,instructions TEXT,updated_at TEXT); INSERT INTO payment_methods(code,name,active) VALUES('MP','Mercado Pago',0),('01','Dinheiro',1)",
   );
   const app = express();
   app.use(express.json());
@@ -248,6 +280,12 @@ test("OAuth account linking, state protection, encrypted storage and refresh lif
       assert.equal(status.body.connected, true);
       assert.equal(status.body.account.id, "123456");
       assert.equal(status.body.automatic_renewal, true);
+      assert.equal(status.body.payment_methods.status, "ready");
+      assert.equal(status.body.payment_methods.items.length, 4);
+      assert.equal(
+        status.body.payment_methods.items.filter((m) => m.enabled).length,
+        2,
+      );
       const publicConfig = await request("/api/shop/test-config");
       assert.equal(publicConfig.body.configured, true);
       assert.equal(publicConfig.body.public_key, "APP_USR-public-key");
@@ -262,6 +300,51 @@ test("OAuth account linking, state protection, encrypted storage and refresh lif
           assert.equal(mercadoPagoConfig().token, "two");
         }),
       ]);
+    },
+  );
+  await t.test(
+    "method synchronization updates saved records without duplicates or altering manual methods",
+    async () => {
+      paymentMethods[0].name = "Pix atualizado";
+      assert.equal(
+        (
+          await request("/api/mercado-pago/methods/sync", {
+            body: {},
+            role: "funcionario",
+          })
+        ).status,
+        403,
+      );
+      for (let i = 0; i < 2; i++)
+        assert.equal(
+          (await request("/api/mercado-pago/methods/sync", { body: {} }))
+            .status,
+          200,
+        );
+      assert.equal(
+        (await db.prepare("SELECT count(*) n FROM mercado_pago_methods").get())
+          .n,
+        4,
+      );
+      assert.equal(
+        (
+          await db
+            .prepare(
+              "SELECT name FROM mercado_pago_methods WHERE provider_id='pix'",
+            )
+            .get()
+        ).name,
+        "Pix atualizado",
+      );
+      assert.equal(
+        (
+          await db
+            .prepare("SELECT active FROM payment_methods WHERE code='01'")
+            .get()
+        ).active,
+        1,
+      );
+      paymentMethods[0].name = "Pix";
     },
   );
   await t.test(
@@ -373,6 +456,46 @@ test("OAuth account linking, state protection, encrypted storage and refresh lif
         false,
       );
       assert.equal(refreshes, before);
+    },
+  );
+  await t.test(
+    "catalog outages preserve authorization and saved methods; retry imports them and creates a missing payment registration",
+    async () => {
+      methodsUnavailable = true;
+      await db.prepare("DELETE FROM payment_methods WHERE code='MP'").run();
+      assert.match(
+        (await callback(await start())).location,
+        /connected_sync_pending$/,
+      );
+      const pending = await request("/api/mercado-pago/oauth/status");
+      assert.equal(pending.body.connected, true);
+      assert.equal(pending.body.payment_methods.status, "pending");
+      assert.equal(pending.body.payment_methods.items.length, 4);
+      assert.equal(
+        (
+          await db
+            .prepare("SELECT active FROM payment_methods WHERE code='MP'")
+            .get()
+        ).active,
+        1,
+      );
+      assert.equal(
+        (await request("/api/mercado-pago/methods/sync", { body: {} })).status,
+        202,
+      );
+      methodsUnavailable = false;
+      timestamp += 61000;
+      const recovered = await request("/api/mercado-pago/oauth/status");
+      assert.equal(recovered.body.payment_methods.status, "ready");
+      assert.equal(recovered.body.payment_methods.items.length, 4);
+      assert.equal(
+        (
+          await db
+            .prepare("SELECT count(*) n FROM payment_methods WHERE code='MP'")
+            .get()
+        ).n,
+        1,
+      );
     },
   );
 });

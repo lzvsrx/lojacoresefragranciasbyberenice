@@ -82,7 +82,10 @@ export const documentValid = (value) => {
     calculate(digits.slice(0, -1)) === Number(digits.at(-1))
   );
 };
-export async function installCommerce(app, { db, auth, safeUser }) {
+export async function installCommerce(
+  app,
+  { db, auth, safeUser, syncMercadoPagoMethods },
+) {
   await db.exec(`
     CREATE TABLE IF NOT EXISTS mercado_pago_checkouts(order_id INTEGER PRIMARY KEY REFERENCES web_orders(id),preference_id TEXT NOT NULL,checkout_url TEXT NOT NULL,collector_id TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS mercado_pago_payments(payment_id TEXT PRIMARY KEY,order_id INTEGER NOT NULL REFERENCES web_orders(id),status TEXT NOT NULL,updated_at TEXT NOT NULL);
@@ -605,6 +608,7 @@ export async function installCommerce(app, { db, auth, safeUser }) {
     res.status(201).json(await readOrder(id));
   });
   const mercadoPago = await installMercadoPago(app, {
+    syncMercadoPagoMethods,
     db,
     auth,
     readOrder,

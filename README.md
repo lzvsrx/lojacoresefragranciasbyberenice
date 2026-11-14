@@ -284,7 +284,7 @@ Exportações de produtos e vendas protegem células que poderiam ser interpreta
 
 ## Validações realizadas
 
-A suíte atual passou com **72 testes**, além de build e auditoria sem vulnerabilidades encontradas. O reforço de segurança também foi verificado em navegador com login por cookies, recarregamento, separação dos portais e revogação das sessões, e os testes de API e comércio foram exercitados pelo adaptador libSQL. As verificações anteriores de cadastro, detalhes, checkout, reserva, confirmação manual de pagamento, atendimento e correção de cadastro incluíram layout nas larguras 320, 390 e 1440 pixels.
+A suíte atual passou com **75 testes**, além de build e auditoria sem vulnerabilidades encontradas. O reforço de segurança também foi verificado em navegador com login por cookies, recarregamento, separação dos portais e revogação das sessões, e os testes de API e comércio foram exercitados pelo adaptador libSQL. As verificações anteriores de cadastro, detalhes, checkout, reserva, confirmação manual de pagamento, atendimento e correção de cadastro incluíram layout nas larguras 320, 390 e 1440 pixels.
 
 A suíte inclui testes de autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração, busca sem acentos, catálogo público, cadastro seguro de clientes, separação de permissões, conferência de sacola e bloqueio de gravações na Vercel sem banco persistente. Os testes de comércio acrescentam identificação do fornecedor, informações de produtos, aceite, preço/frete, idempotência, concorrência, privacidade entre contas, pagamento/reembolso, expiração e liberação de reservas e troca de senha.
 
@@ -299,6 +299,8 @@ npm audit
 Os testes usam bancos temporários isolados. O adaptador libSQL foi testado com o cliente oficial em arquivo local; isso não substitui a validação de um Turso real.
 
 O workflow `.github/workflows/ci.yml` está configurado para instalação, testes, compilação e auditoria de vulnerabilidades moderadas ou superiores, com Node.js 26.13.1 e npm 12.2.2, em pushes para `main` e pull requests. Consulte o resultado das execuções na aba Actions do repositório.
+
+A conexão OAuth também importa e salva automaticamente os meios de pagamento informados pelo Mercado Pago. O painel exibe a lista e a última sincronização; reautorizações atualizam o cadastro sem duplicá-lo. Pendências são recuperadas pela tela e pelo cron autenticado. Os recebimentos presenciais permanecem separados.
 
 ## Estrutura
 

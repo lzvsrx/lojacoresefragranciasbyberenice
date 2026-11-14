@@ -380,7 +380,11 @@ const sessions = sessionService({
   audit,
 });
 const auth = sessions.authenticate;
-await installMercadoPagoConnection(app, { db, auth, audit });
+const mercadoPagoConnection = await installMercadoPagoConnection(app, {
+  db,
+  auth,
+  audit,
+});
 const productJson = (p) => ({
   ...p,
   image: undefined,
@@ -1955,7 +1959,12 @@ app.put(
     res.json({ ok: true });
   },
 );
-await installCommerce(app, { db, auth, safeUser });
+await installCommerce(app, {
+  db,
+  auth,
+  safeUser,
+  syncMercadoPagoMethods: mercadoPagoConnection.syncSavedMethods,
+});
 app.use(express.static(path.join(root, "dist")));
 app.get("/{*splat}", (req, res, next) =>
   req.path.startsWith("/api")

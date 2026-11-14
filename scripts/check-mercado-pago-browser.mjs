@@ -94,6 +94,21 @@ globalThis.fetch = async (url, options) => {
   if (!String(url).startsWith("https://api.mercadopago.com"))
     return originalFetch(url, options);
   const endpoint = new URL(url).pathname;
+  if (endpoint === "/v1/payment_methods")
+    return Response.json([
+      {
+        id: "pix",
+        name: "Pix",
+        payment_type_id: "bank_transfer",
+        status: "active",
+      },
+      {
+        id: "visa",
+        name: "Visa",
+        payment_type_id: "credit_card",
+        status: "active",
+      },
+    ]);
   if (endpoint === "/oauth/token")
     return Response.json({
       access_token: "test-oauth-token",
@@ -253,7 +268,7 @@ try {
   );
   await page.goto(`${origin}/#/admin/pagamentos`);
   await page
-    .getByRole("button", { name: "Preparar conexão com Mercado Pago" })
+    .getByRole("button", { name: "Conectar Mercado Pago", exact: true })
     .click();
   await page.getByLabel("ID da aplicação (Client ID)").fill("123456789");
   await page
@@ -271,7 +286,7 @@ try {
     .waitFor();
   await page
     .getByText(
-      "Conta vinculada. Os pagamentos pelo Mercado Pago foram ativados na loja.",
+      "Conta conectada. As formas de pagamento foram cadastradas e salvas automaticamente.",
       { exact: true },
     )
     .waitFor();
@@ -282,6 +297,20 @@ try {
         .get()
     ).account_id,
     "77",
+  );
+  assert.equal(await page.locator(".mp-imported-methods li").count(), 2);
+  await page.reload();
+  await page.locator(".mp-imported-methods li").first().waitFor();
+  assert.equal(await page.locator(".mp-imported-methods li").count(), 2);
+  assert.equal(
+    (
+      await db
+        .prepare(
+          "SELECT count(*) n FROM mercado_pago_methods WHERE account_id='77'",
+        )
+        .get()
+    ).n,
+    2,
   );
   assert.deepEqual(errors, []);
   console.log(

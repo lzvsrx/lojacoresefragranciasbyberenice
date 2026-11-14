@@ -182,8 +182,12 @@ a svg {
   margin: 0 8px 8px 0;
 }
 .mercado-pago-application {
-  margin: 20px 0;
-  max-width: 720px;
+  margin: 24px 0;
+  max-width: 760px;
+  background: #fff;
+  border: 1px solid #e4d6ca;
+  border-radius: 14px;
+  padding: clamp(14px, 3vw, 24px);
 }
 .mercado-pago-application label {
   display: grid;
@@ -193,6 +197,62 @@ a svg {
 .mercado-pago-application input {
   width: 100%;
   min-width: 0;
+}
+.mp-connection-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 26px;
+  list-style-position: inside;
+  padding: 0;
+  margin: 18px 0;
+  font-size: 13px;
+}
+.mp-methods-preview,
+.mp-method-registry {
+  margin-top: 20px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid #e4d6ca;
+  border-radius: 12px;
+}
+.mp-method-registry-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: center;
+}
+.mp-method-registry h3 {
+  margin: 0;
+}
+.mp-imported-methods {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 10px;
+}
+.mp-imported-methods li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #eadfd6;
+  border-radius: 10px;
+}
+.mp-imported-methods small {
+  display: block;
+  margin-top: 4px;
+}
+.mp-registration-urls {
+  margin-top: 14px;
+}
+.mp-registration-urls summary {
+  cursor: pointer;
+  font-size: 13px;
+  text-decoration: underline;
 }
 .payment-overview {
   display: flex;

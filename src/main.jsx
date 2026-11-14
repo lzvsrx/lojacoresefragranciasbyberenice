@@ -1859,8 +1859,8 @@ function PaymentSettings() {
         />
       </Card>
       <Card
-        title="Configuração das formas de pagamento"
-        subtitle="Escolha como sua loja recebe e o que a equipe deve conferir em cada venda."
+        title="Recebimentos presenciais"
+        subtitle="Configure as formas que a equipe confere no caixa ou na maquininha."
       >
         <div className="payments-intro">
           <CreditCard size={28} />
@@ -1876,7 +1876,8 @@ function PaymentSettings() {
         </div>
         <div className="payment-overview">
           <span>
-            <b>{methods.filter((m) => m.active).length}</b> formas ativas
+            <b>{methods.filter((m) => m.active && m.code !== "MP").length}</b>{" "}
+            formas presenciais ativas
           </span>
           <span>1. Configure</span>
           <span>2. Confira o recebimento</span>
@@ -1891,134 +1892,140 @@ function PaymentSettings() {
           </div>
         )}
         <div className="payment-methods">
-          {methods.map((method) => {
-            const guide = paymentGuidance(method.code);
-            return (
-              <article key={method.id}>
-                <div className="payment-method-heading">
-                  <div>
-                    <h4>{method.name || guide.title}</h4>
-                    <p>{guide.description}</p>
+          {methods
+            .filter((method) => method.code !== "MP")
+            .map((method) => {
+              const guide = paymentGuidance(method.code);
+              return (
+                <article key={method.id}>
+                  <div className="payment-method-heading">
+                    <div>
+                      <h4>{method.name || guide.title}</h4>
+                      <p>{guide.description}</p>
+                    </div>
+                    <span className={`pill ${method.active ? "green" : ""}`}>
+                      {dirtyIds.includes(method.id)
+                        ? "Alterações não salvas"
+                        : method.active
+                          ? "Ativa nas vendas"
+                          : "Desativada"}
+                    </span>
                   </div>
-                  <span className={`pill ${method.active ? "green" : ""}`}>
-                    {dirtyIds.includes(method.id)
-                      ? "Alterações não salvas"
-                      : method.active
-                        ? "Ativa nas vendas"
-                        : "Desativada"}
-                  </span>
-                </div>
-                <div className="payment-method-help">
-                  <p>
-                    <b>Como conferir:</b> {guide.steps}
-                  </p>
-                  <p>
-                    <b>Referência:</b> {guide.reference}
-                  </p>
-                </div>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void save(method);
-                  }}
-                >
-                  <fieldset
-                    disabled={savingId !== null}
-                    className="payment-config"
+                  <div className="payment-method-help">
+                    <p>
+                      <b>Como conferir:</b> {guide.steps}
+                    </p>
+                    <p>
+                      <b>Referência:</b> {guide.reference}
+                    </p>
+                  </div>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      void save(method);
+                    }}
                   >
-                    <label>
-                      Nome exibido na venda
-                      <input
-                        required
-                        minLength={2}
-                        maxLength={80}
-                        value={method.name}
-                        onChange={(e) =>
-                          change(method.id, "name", e.target.value)
-                        }
-                      />
-                      <small>
-                        Exemplo: Pix da loja ou Crédito na maquininha.
-                      </small>
-                    </label>
-                    <label>
-                      Máximo de parcelas
-                      <input
-                        type="number"
-                        min="1"
-                        max="24"
-                        value={method.max_installments}
-                        onChange={(e) =>
-                          change(method.id, "max_installments", +e.target.value)
-                        }
-                      />
-                      <small>
-                        1 = à vista. Use as condições do seu provedor; o sistema
-                        não calcula juros.
-                      </small>
-                    </label>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={!!method.active}
-                        onChange={(e) =>
-                          change(method.id, "active", e.target.checked)
-                        }
-                      />{" "}
-                      Disponível para vender
-                    </label>
-                    <label className="check">
-                      <input
-                        type="checkbox"
-                        checked={!!method.requires_reference}
-                        onChange={(e) =>
-                          change(
-                            method.id,
-                            "requires_reference",
-                            e.target.checked,
-                          )
-                        }
-                      />{" "}
-                      Exigir código da transação
-                    </label>
-                    <label className="wide">
-                      Orientação de pagamento
-                      <textarea
-                        rows={3}
-                        maxLength="500"
-                        value={method.instructions || ""}
-                        onChange={(e) =>
-                          change(method.id, "instructions", e.target.value)
-                        }
-                      />
-                      <small>
-                        Aparece no formulário de venda. Informe como pagar e
-                        quando o pedido será liberado. Não informe senha, token
-                        bancário, número de cartão ou CVV.
-                      </small>
-                    </label>
-                  </fieldset>
-                  <div className="payment-method-footer">
-                    <button
-                      type="button"
+                    <fieldset
                       disabled={savingId !== null}
-                      onClick={() =>
-                        change(method.id, "instructions", guide.instructions)
-                      }
+                      className="payment-config"
                     >
-                      Usar orientação sugerida
-                    </button>
-                    <button className="primary" disabled={savingId !== null}>
-                      <Save size={16} />{" "}
-                      {savingId === method.id
-                        ? "Salvando…"
-                        : "Salvar configuração"}
-                    </button>
-                  </div>
-                </form>
-              </article>
-            );
-          })}
+                      <label>
+                        Nome exibido na venda
+                        <input
+                          required
+                          minLength={2}
+                          maxLength={80}
+                          value={method.name}
+                          onChange={(e) =>
+                            change(method.id, "name", e.target.value)
+                          }
+                        />
+                        <small>
+                          Exemplo: Pix da loja ou Crédito na maquininha.
+                        </small>
+                      </label>
+                      <label>
+                        Máximo de parcelas
+                        <input
+                          type="number"
+                          min="1"
+                          max="24"
+                          value={method.max_installments}
+                          onChange={(e) =>
+                            change(
+                              method.id,
+                              "max_installments",
+                              +e.target.value,
+                            )
+                          }
+                        />
+                        <small>
+                          1 = à vista. Use as condições do seu provedor; o
+                          sistema não calcula juros.
+                        </small>
+                      </label>
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={!!method.active}
+                          onChange={(e) =>
+                            change(method.id, "active", e.target.checked)
+                          }
+                        />{" "}
+                        Disponível para vender
+                      </label>
+                      <label className="check">
+                        <input
+                          type="checkbox"
+                          checked={!!method.requires_reference}
+                          onChange={(e) =>
+                            change(
+                              method.id,
+                              "requires_reference",
+                              e.target.checked,
+                            )
+                          }
+                        />{" "}
+                        Exigir código da transação
+                      </label>
+                      <label className="wide">
+                        Orientação de pagamento
+                        <textarea
+                          rows={3}
+                          maxLength="500"
+                          value={method.instructions || ""}
+                          onChange={(e) =>
+                            change(method.id, "instructions", e.target.value)
+                          }
+                        />
+                        <small>
+                          Aparece no formulário de venda. Informe como pagar e
+                          quando o pedido será liberado. Não informe senha,
+                          token bancário, número de cartão ou CVV.
+                        </small>
+                      </label>
+                    </fieldset>
+                    <div className="payment-method-footer">
+                      <button
+                        type="button"
+                        disabled={savingId !== null}
+                        onClick={() =>
+                          change(method.id, "instructions", guide.instructions)
+                        }
+                      >
+                        Usar orientação sugerida
+                      </button>
+                      <button className="primary" disabled={savingId !== null}>
+                        <Save size={16} />{" "}
+                        {savingId === method.id
+                          ? "Salvando…"
+                          : "Salvar configuração"}
+                      </button>
+                    </div>
+                  </form>
+                </article>
+              );
+            })}
         </div>
       </Card>
       <Card

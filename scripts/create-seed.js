@@ -34,6 +34,8 @@ db.transaction(() => {
     "security_audit",
     "service_requests",
     "mercado_pago_oauth_states",
+    "mercado_pago_methods",
+    "mercado_pago_method_sync",
     "mercado_pago_connection",
     "mercado_pago_payments",
     "mercado_pago_operations",

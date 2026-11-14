@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { inputError } from "./validation.js";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { excludedPaymentTypes } from "./mercado-pago-methods.js";
 import {
   MercadoPagoConfig,
   Preference,
@@ -306,7 +307,7 @@ export function preferenceBody(order, config, installments, lines = []) {
     payment_methods: {
       installments,
       // Offline payments may settle after the 24-hour inventory reservation.
-      excluded_payment_types: [{ id: "ticket" }, { id: "atm" }],
+      excluded_payment_types: excludedPaymentTypes.map((id) => ({ id })),
     },
   };
 }

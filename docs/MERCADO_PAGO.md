@@ -6,7 +6,7 @@ A solução implementada é **Checkout Pro via Preferences API**, com SDK oficia
 
 ## Conectar sua conta pelo Mercado Pago
 
-Em **Formas de pagamento**, clique em **Preparar conexão com Mercado Pago**. Na primeira vez, abra as integrações no painel do Mercado Pago, selecione a aplicação da loja e habilite o fluxo de autorização com PKCE. Habilite também o acesso offline quando disponível para permitir renovação automática. Informe no formulário protegido da loja o **Client ID**, o **Client Secret** e a assinatura secreta das notificações fornecidos pelo painel. Não envie esses segredos em conversas.
+Em **Formas de pagamento**, clique em **Conectar Mercado Pago**. Na primeira vez, abra as integrações no painel do Mercado Pago, selecione a aplicação da loja e habilite o fluxo de autorização com PKCE. Habilite também o acesso offline quando disponível para permitir renovação automática. Informe no formulário protegido da loja o **Client ID**, o **Client Secret** e a assinatura secreta das notificações fornecidos pelo painel. Não envie esses segredos em conversas.
 
 Cadastre esta URL exata de retorno na aplicação do Mercado Pago:
 
@@ -23,6 +23,16 @@ Client Secret, assinatura, Access Token, Refresh Token e verificadores PKCE fica
 Quando o provedor concede `offline_access` e Refresh Token, o servidor renova a autorização próxima ao vencimento e persiste os tokens rotacionados. Uma reserva atômica no banco impede renovações simultâneas entre instâncias. Sem essa permissão, ou após revogação, a tela solicita nova autorização. [Fluxo oficial OAuth e PKCE](https://www.mercadopago.com.br/developers/pt/docs/security/oauth/creation), [renovação oficial](https://www.mercadopago.com.br/developers/pt/docs/security/oauth/renewal).
 
 As instruções de Access Token e Public Key por variáveis abaixo são uma alternativa de configuração direta. Elas não são necessárias quando a conta foi conectada pelo fluxo OAuth. O diagnóstico de linha de comando verifica essa alternativa; para a conta vinculada no banco, use **Verificar conexão** na loja.
+
+## Cadastro automático das formas de pagamento
+
+Ao autorizar sua conta, o servidor consulta `GET /v1/payment_methods` com o token obtido pelo OAuth. A conexão, o cadastro Mercado Pago e a lista normalizada dos meios são salvos na mesma transação do banco. Não é preciso cadastrar Pix, cartões e bandeiras individualmente. O painel mostra as formas salvas, o estado informado pelo provedor e a última sincronização. Reautorizações e atualizações não duplicam registros.
+
+A lista da API descreve os meios disponíveis para a integração; as opções finais continuam dependendo da conta, do comprador e do valor no Checkout Pro. Métodos temporariamente indisponíveis não são marcados como disponíveis na loja. Boletos e caixas eletrônicos são cadastrados para consulta, mas continuam excluídos do checkout por causa da reserva de 24 horas. A política de exclusão é compartilhada com a criação das preferências. [Referência oficial dos meios de pagamento](https://www.mercadopago.com.br/developers/pt/reference/online-payments/checkout-api-payments/payment-methods/get).
+
+Se a consulta falhar após a autorização, o token não é perdido: a conta fica vinculada e a sincronização fica pendente. A tela tenta novamente após o intervalo de recuperação; o cron autenticado também recupera pendências sem depender de a página ficar aberta. A consulta administrativa atualiza listas antigas e o botão **Atualizar formas** permite uma consulta imediata. Uma falha preserva a última lista salva. Métodos removidos pelo provedor ficam indisponíveis, preservando o registro anterior.
+
+Os recebimentos presenciais continuam separados. A importação não altera códigos fiscais nem transforma uma venda manual em pagamento confirmado. Client ID, Client Secret, assinatura do webhook e URLs da aplicação continuam sendo necessários uma única vez; o OAuth não fornece esses dados de configuração inicial.
 
 ## O que o projeto já faz
 

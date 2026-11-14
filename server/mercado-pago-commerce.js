@@ -34,7 +34,16 @@ const topics = new Set([
 
 export async function installMercadoPago(
   app,
-  { db, auth, readOrder, event, expire, release, recordPaidItems },
+  {
+    db,
+    auth,
+    readOrder,
+    event,
+    expire,
+    release,
+    recordPaidItems,
+    syncMercadoPagoMethods,
+  },
 ) {
   app.use(
     ["/api/customer/orders", "/api/online-orders", "/api/mercado-pago"],
@@ -719,7 +728,11 @@ export async function installMercadoPago(
       !timingSafeEqual(Buffer.from(authHeader), Buffer.from(expected))
     )
       throw inputError("Acesso não autorizado", 401);
-    res.json({ processed: await jobs() });
+    const methods = await syncMercadoPagoMethods?.();
+    res.json({
+      processed: await jobs(),
+      methods_synced: methods?.status === "ready",
+    });
   });
   app.post(
     "/api/online-orders/:id/refund",

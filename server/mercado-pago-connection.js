@@ -11,6 +11,7 @@ import {
   withMercadoPagoCredentials,
 } from "./mercado-pago.js";
 import { inputError } from "./validation.js";
+import { installPaymentMethodRegistry } from "./mercado-pago-methods.js";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
 const callbackPath = "/api/mercado-pago/oauth/callback";
@@ -81,6 +82,7 @@ export async function installMercadoPagoConnection(
   `);
   const read = () =>
     db.prepare("SELECT * FROM mercado_pago_connection WHERE id=1").get();
+  const registry = await installPaymentMethodRegistry(db, { fetcher, now });
   const cipher = () => credentialCipher(env.MERCADO_PAGO_ENCRYPTION_KEY);
   const base = () => mercadoPagoConfig(env).base;
   const application = (row) =>
@@ -302,8 +304,24 @@ export async function installMercadoPagoConnection(
     "/api/mercado-pago/oauth/status",
     auth(["admin"]),
     async (_req, res) => {
-      const row = await read(),
-        settings = application(row);
+      let row = await read();
+      const settings = application(row);
+      let methods = await registry.read(row.account_id);
+      if (
+        row.status === "connected" &&
+        methods.retry_at <= now() &&
+        (methods.status !== "ready" ||
+          Date.parse(methods.synced_at) < now() - 86400000)
+      ) {
+        try {
+          const current = await credentials(row, settings, true);
+          if (current?.token)
+            methods = await registry.sync(row.account_id, current.token);
+          row = await read();
+        } catch {
+          /* Keep the last saved catalog and show pending authorization. */
+        }
+      }
       res.json({
         ready: ready(settings),
         storage_ready: /^[a-f0-9]{64}$/i.test(
@@ -324,6 +342,7 @@ export async function installMercadoPagoConnection(
         expires_at: row.expires_at
           ? new Date(row.expires_at).toISOString()
           : null,
+        payment_methods: methods,
         automatic_renewal: row.tokens_cipher
           ? Boolean(
               cipher().open(row.tokens_cipher, "mercadopago:tokens:v1")
@@ -335,6 +354,29 @@ export async function installMercadoPagoConnection(
             )
           : false,
       });
+    },
+  );
+  app.post(
+    "/api/mercado-pago/methods/sync",
+    auth(["admin"]),
+    async (req, res) => {
+      const row = await read(),
+        current = await credentials(row, application(row), true);
+      if (row.status !== "connected" || !current?.token)
+        throw inputError(
+          "Conecte sua conta Mercado Pago antes de sincronizar.",
+          409,
+        );
+      const methods = await registry.sync(row.account_id, current.token, {
+        force: true,
+      });
+      await audit(
+        req,
+        "mercado_pago.methods_synchronized",
+        req.user.id,
+        row.account_id,
+      );
+      res.status(methods.status === "ready" ? 200 : 202).json(methods);
     },
   );
   app.post(
@@ -485,8 +527,11 @@ export async function installMercadoPagoConnection(
         ),
         test_token: env.MERCADO_PAGO_SANDBOX === "true",
       });
-      const tokens = tokenData(result),
-        seller = await account(tokens.token);
+      const tokens = tokenData(result);
+      const [seller, methods] = await Promise.all([
+        account(tokens.token),
+        registry.download(tokens.token).catch(() => null),
+      ]);
       if (seller.id !== tokens.accountId)
         throw inputError("Conta inválida.", 400);
       if (row.account_id && row.account_id !== seller.id)
@@ -515,9 +560,11 @@ export async function installMercadoPagoConnection(
           throw inputError("A conexão foi alterada. Tente novamente.", 409);
         await db
           .prepare(
-            "UPDATE payment_methods SET active=1,updated_at=CURRENT_TIMESTAMP WHERE code='MP'",
+            "INSERT INTO payment_methods(code,name,active,requires_reference,max_installments,instructions) VALUES('MP','Mercado Pago',1,1,1,'Pagamento online pelo Checkout Pro do Mercado Pago.') ON CONFLICT(code) DO UPDATE SET active=1,updated_at=CURRENT_TIMESTAMP",
           )
           .run();
+        if (methods) await registry.save(seller.id, methods);
+        else await registry.pending(seller.id);
       })();
       await audit(
         req,
@@ -525,11 +572,25 @@ export async function installMercadoPagoConnection(
         req.user.id,
         seller.id,
       );
-      return redirect("connected");
+      return redirect(methods ? "connected" : "connected_sync_pending");
     } catch {
       await audit(req, "mercado_pago.authorization_failed");
       return redirect("failed");
     }
   });
-  return { read, credentials, application };
+  const syncSavedMethods = async () => {
+    const row = await read();
+    if (row.status !== "connected") return null;
+    const current = await registry.read(row.account_id);
+    if (
+      current.status === "ready" &&
+      Date.parse(current.synced_at) > now() - 86400000
+    )
+      return current;
+    const authData = await credentials(row, application(row), true);
+    return authData?.token
+      ? registry.sync(row.account_id, authData.token)
+      : current;
+  };
+  return { read, credentials, application, syncSavedMethods };
 }
