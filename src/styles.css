@@ -174,6 +174,26 @@ a svg {
   font-size: 13px;
   line-height: 1.65;
 }
+.mercado-pago-connection {
+  min-width: 0;
+  width: 100%;
+}
+.mercado-pago-connection button {
+  margin: 0 8px 8px 0;
+}
+.mercado-pago-application {
+  margin: 20px 0;
+  max-width: 720px;
+}
+.mercado-pago-application label {
+  display: grid;
+  gap: 6px;
+  margin: 14px 0;
+}
+.mercado-pago-application input {
+  width: 100%;
+  min-width: 0;
+}
 .payment-overview {
   display: flex;
   flex-wrap: wrap;

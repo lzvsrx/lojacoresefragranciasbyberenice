@@ -10,6 +10,7 @@ import {
 } from "./security.js";
 import { sessionService } from "./sessions.js";
 import { protectDefaultAdmin } from "./admin-bootstrap.js";
+import { installMercadoPagoConnection } from "./mercado-pago-connection.js";
 import { DatabaseRateLimitStore } from "./rate-limit-store.js";
 import { sanitizeUploadedImage, createUploadGate } from "./uploads.js";
 import cors from "cors";
@@ -379,6 +380,7 @@ const sessions = sessionService({
   audit,
 });
 const auth = sessions.authenticate;
+await installMercadoPagoConnection(app, { db, auth, audit });
 const productJson = (p) => ({
   ...p,
   image: undefined,

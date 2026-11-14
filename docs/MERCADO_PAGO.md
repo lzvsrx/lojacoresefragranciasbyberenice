@@ -2,7 +2,27 @@
 
 Domínio definido: **https://lojacoresefragranciasbyberenice.vercel.app**.
 
-A solução implementada é **Checkout Pro via Preferences API**, com SDK oficial Node.js no servidor e MercadoPago.js/Wallet Brick no navegador. O código está preparado; a conta real e a hospedagem ainda precisam ser conectadas e verificadas com suas credenciais. Testes locais usam respostas simuladas e não movimentam dinheiro.
+A solução implementada é **Checkout Pro via Preferences API**, com SDK oficial Node.js no servidor e MercadoPago.js/Wallet Brick no navegador. A conta pode ser vinculada pela autorização oficial OAuth descrita abaixo. Testes locais usam respostas simuladas e não movimentam dinheiro.
+
+## Conectar sua conta pelo Mercado Pago
+
+Em **Formas de pagamento**, clique em **Preparar conexão com Mercado Pago**. Na primeira vez, abra as integrações no painel do Mercado Pago, selecione a aplicação da loja e habilite o fluxo de autorização com PKCE. Habilite também o acesso offline quando disponível para permitir renovação automática. Informe no formulário protegido da loja o **Client ID**, o **Client Secret** e a assinatura secreta das notificações fornecidos pelo painel. Não envie esses segredos em conversas.
+
+Cadastre esta URL exata de retorno na aplicação do Mercado Pago:
+
+```text
+https://lojacoresefragranciasbyberenice.vercel.app/api/mercado-pago/oauth/callback
+```
+
+Cadastre também o webhook indicado na seção de notificações deste guia. Depois, use **Salvar e conectar no Mercado Pago**. Nas próximas autorizações, basta **Conectar Mercado Pago**. O navegador abre o site oficial do provedor para login e consentimento. Na volta, a loja registra a conta, mostra seu identificador e ativa a opção Mercado Pago nos pedidos. A senha da conta Mercado Pago é informada exclusivamente no provedor.
+
+O servidor troca o código por Access Token e Public Key automaticamente. O retorno exige a mesma sessão administrativa que iniciou a autorização, estado aleatório de uso único com validade de dez minutos e PKCE S256. O código de retorno não confirma pagamentos: estes continuam dependendo da consulta autenticada e dos webhooks. Uma reconexão não pode trocar a conta recebedora já vinculada aos pedidos.
+
+Client Secret, assinatura, Access Token, Refresh Token e verificadores PKCE ficam criptografados com AES-256-GCM no banco persistente. A chave separada `MERCADO_PAGO_ENCRYPTION_KEY` deve ser preservada no ambiente da hospedagem e em backup privado; nunca a altere sem uma migração das credenciais. A preparação desta instalação já criou essa chave na Vercel e no `.env` privado. O comando `payments:configure` também gera a chave em instalações novas.
+
+Quando o provedor concede `offline_access` e Refresh Token, o servidor renova a autorização próxima ao vencimento e persiste os tokens rotacionados. Uma reserva atômica no banco impede renovações simultâneas entre instâncias. Sem essa permissão, ou após revogação, a tela solicita nova autorização. [Fluxo oficial OAuth e PKCE](https://www.mercadopago.com.br/developers/pt/docs/security/oauth/creation), [renovação oficial](https://www.mercadopago.com.br/developers/pt/docs/security/oauth/renewal).
+
+As instruções de Access Token e Public Key por variáveis abaixo são uma alternativa de configuração direta. Elas não são necessárias quando a conta foi conectada pelo fluxo OAuth. O diagnóstico de linha de comando verifica essa alternativa; para a conta vinculada no banco, use **Verificar conexão** na loja.
 
 ## O que o projeto já faz
 

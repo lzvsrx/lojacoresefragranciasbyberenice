@@ -29,6 +29,7 @@ if (args.includes("--init")) {
     PUBLIC_BASE_URL: url.origin,
     JWT_SECRET: randomBytes(48).toString("hex"),
     CRON_SECRET: randomBytes(32).toString("hex"),
+    MERCADO_PAGO_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
     MERCADO_PAGO_PUBLIC_KEY: "",
     MERCADO_PAGO_ACCESS_TOKEN: "",
     MERCADO_PAGO_WEBHOOK_SECRET: "",

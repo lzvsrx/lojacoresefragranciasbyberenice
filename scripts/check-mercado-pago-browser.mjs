@@ -4,7 +4,7 @@ import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { randomUUID } from "node:crypto";
+import { randomUUID, randomBytes } from "node:crypto";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import { testSchema } from "../server/test-fixture.js";
@@ -21,6 +21,7 @@ Object.assign(process.env, {
   MERCADO_PAGO_PUBLIC_KEY: "TEST-public-key",
   MERCADO_PAGO_WEBHOOK_SECRET: "test-secret",
   MERCADO_PAGO_SANDBOX: "true",
+  MERCADO_PAGO_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
 });
 for (const key of [
   "VERCEL",
@@ -62,18 +63,16 @@ schema.close();
 setup.close();
 const { default: app, database: db } = await import("../server/index.js");
 await db.prepare("UPDATE payment_methods SET active=1 WHERE code='MP'").run();
-await db
-  .prepare("INSERT INTO commerce_settings VALUES(1,?)")
-  .run(
-    JSON.stringify({
-      ...commerceDefaults,
-      legal_name: "Loja de teste",
-      document: "11222333000181",
-      email: "store@example.test",
-      hours: "9h",
-      checkout_enabled: true,
-    }),
-  );
+await db.prepare("INSERT INTO commerce_settings VALUES(1,?)").run(
+  JSON.stringify({
+    ...commerceDefaults,
+    legal_name: "Loja de teste",
+    document: "11222333000181",
+    email: "store@example.test",
+    hours: "9h",
+    checkout_enabled: true,
+  }),
+);
 await db
   .prepare(
     "INSERT INTO product_details(product_id,description,composition,precautions,volume,manufacturer) VALUES(1,'Perfume de teste','Ingredientes','Uso externo','100ml','Fabricante')",
@@ -95,6 +94,22 @@ globalThis.fetch = async (url, options) => {
   if (!String(url).startsWith("https://api.mercadopago.com"))
     return originalFetch(url, options);
   const endpoint = new URL(url).pathname;
+  if (endpoint === "/oauth/token")
+    return Response.json({
+      access_token: "test-oauth-token",
+      public_key: "TEST-public-key",
+      refresh_token: "test-oauth-refresh",
+      expires_in: 3600,
+      live_mode: false,
+      user_id: 77,
+      scope: "read write offline_access",
+    });
+  if (endpoint === "/users/me")
+    return Response.json({
+      id: 77,
+      site_id: "MLB",
+      nickname: "Conta de teste",
+    });
   if (/\/checkout\/preferences\/?$/.test(endpoint)) {
     preference = JSON.parse(options.body);
     deviceHeader = options.headers["X-Meli-Session-Id"];
@@ -220,8 +235,57 @@ try {
     8,
   );
   assert.deepEqual(errors, []);
+  await page.route(
+    "https://auth.mercadopago.com/authorization**",
+    async (route) => {
+      const state = new URL(route.request().url()).searchParams.get("state");
+      await route.fulfill({
+        contentType: "text/html",
+        body: `<a href="${origin}/api/mercado-pago/oauth/callback?code=fake-ui-code&state=${state}">Autorizar conta simulada</a>`,
+      });
+    },
+  );
+  await page.route("https://store.test/**", (route) =>
+    route.fulfill({
+      status: 302,
+      headers: { location: origin + new URL(route.request().url()).hash },
+    }),
+  );
+  await page.goto(`${origin}/#/admin/pagamentos`);
+  await page
+    .getByRole("button", { name: "Preparar conexão com Mercado Pago" })
+    .click();
+  await page.getByLabel("ID da aplicação (Client ID)").fill("123456789");
+  await page
+    .getByLabel("Segredo da aplicação (Client Secret)")
+    .fill("fake-application-secret-12345");
+  await page
+    .getByLabel("Assinatura secreta das notificações")
+    .fill("fake-webhook-secret-12345");
+  await page
+    .getByRole("button", { name: "Salvar e conectar no Mercado Pago" })
+    .click();
+  await page.getByRole("link", { name: "Autorizar conta simulada" }).click();
+  await page
+    .getByText("Conta Mercado Pago conectada", { exact: true })
+    .waitFor();
+  await page
+    .getByText(
+      "Conta vinculada. Os pagamentos pelo Mercado Pago foram ativados na loja.",
+      { exact: true },
+    )
+    .waitFor();
+  assert.equal(
+    (
+      await db
+        .prepare("SELECT account_id FROM mercado_pago_connection WHERE id=1")
+        .get()
+    ).account_id,
+    "77",
+  );
+  assert.deepEqual(errors, []);
   console.log(
-    "Checkout UI check passed with simulated provider: official SDK button, device ID, confirmation and admin refund.",
+    "Checkout UI check passed with simulated provider: SDK, device ID, payment, refund and OAuth account authorization/return.",
   );
 } finally {
   globalThis.fetch = originalFetch;

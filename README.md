@@ -142,7 +142,9 @@ O banco de exemplo usa usuário `admin` e senha `admin123`. Troque a senha antes
 
 ### Mercado Pago automático (Checkout Pro)
 
-O guia completo está em [docs/MERCADO_PAGO.md](docs/MERCADO_PAGO.md), com o domínio **https://lojacoresefragranciasbyberenice.vercel.app**, SDKs oficiais, webhook, consulta, cancelamento, reembolso e configuração da Vercel. Execute `npm run payments:configure` para preparar o `.env` privado e gerar as chaves ausentes sem exibi-las; execute `npm run payments:check` depois de preencher as credenciais. O diagnóstico informa as pendências sem publicar segredos.
+Em **Formas de pagamento**, prepare a aplicação uma vez e use **Conectar Mercado Pago** para entrar no site oficial e autorizar a conta. Ao retornar, a conta fica vinculada e os pagamentos são ativados. Access Token, Public Key e renovação são tratados pelo servidor; segredos ficam criptografados no banco. A configuração inicial exige Client ID, Client Secret, assinatura do webhook e a URL de retorno cadastrada no Mercado Pago.
+
+O guia completo está em [docs/MERCADO_PAGO.md](docs/MERCADO_PAGO.md), com o domínio **https://lojacoresefragranciasbyberenice.vercel.app**, OAuth, SDKs oficiais, webhook, consulta, cancelamento, reembolso e configuração da Vercel. Execute `npm run payments:configure` para preparar o `.env` privado e gerar as chaves ausentes sem exibi-las. A alternativa de credenciais manuais no ambiente continua disponível; `npm run payments:check` verifica essa alternativa. Para OAuth, use **Verificar conexão** na tela da loja.
 
 Configure `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_PUBLIC_KEY`, `MERCADO_PAGO_WEBHOOK_SECRET` e `PUBLIC_BASE_URL`. O webhook da loja é `https://lojacoresefragranciasbyberenice.vercel.app/api/mercado-pago/webhook`. Use `MERCADO_PAGO_SANDBOX=true` com credenciais de teste correspondentes; em produção use `false`, credenciais produtivas e `CRON_SECRET` para a recuperação agendada de notificações.
 
@@ -282,7 +284,7 @@ Exportações de produtos e vendas protegem células que poderiam ser interpreta
 
 ## Validações realizadas
 
-A suíte atual passou com **63 testes**, além de build e auditoria sem vulnerabilidades encontradas. O reforço de segurança também foi verificado em navegador com login por cookies, recarregamento, separação dos portais e revogação das sessões, e os testes de API e comércio foram exercitados pelo adaptador libSQL. As verificações anteriores de cadastro, detalhes, checkout, reserva, confirmação manual de pagamento, atendimento e correção de cadastro incluíram layout nas larguras 320, 390 e 1440 pixels.
+A suíte atual passou com **72 testes**, além de build e auditoria sem vulnerabilidades encontradas. O reforço de segurança também foi verificado em navegador com login por cookies, recarregamento, separação dos portais e revogação das sessões, e os testes de API e comércio foram exercitados pelo adaptador libSQL. As verificações anteriores de cadastro, detalhes, checkout, reserva, confirmação manual de pagamento, atendimento e correção de cadastro incluíram layout nas larguras 320, 390 e 1440 pixels.
 
 A suíte inclui testes de autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração, busca sem acentos, catálogo público, cadastro seguro de clientes, separação de permissões, conferência de sacola e bloqueio de gravações na Vercel sem banco persistente. Os testes de comércio acrescentam identificação do fornecedor, informações de produtos, aceite, preço/frete, idempotência, concorrência, privacidade entre contas, pagamento/reembolso, expiração e liberação de reservas e troca de senha.
 

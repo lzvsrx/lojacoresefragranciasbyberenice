@@ -25,6 +25,7 @@ import {
   UsersRound,
 } from "lucide-react";
 import "./styles.css";
+import MercadoPagoConnection from "./mercado-pago-connection.jsx";
 import { expirationStatus, storeToday } from "./expiration.js";
 import { paymentGuidance } from "./payment-guidance.js";
 import { matchesProduct } from "./search.js";
@@ -361,15 +362,18 @@ function Shell({ user, setUser }) {
   const [page, setPage] = useState(
     location.hash.startsWith("#/admin/cadastros")
       ? "users"
-      : location.hash.startsWith("#/admin/pedidos")
-        ? "orders"
-        : allowed[0],
+      : location.hash.startsWith("#/admin/pagamentos")
+        ? "payments"
+        : location.hash.startsWith("#/admin/pedidos")
+          ? "orders"
+          : allowed[0],
   );
   const [adminRoute, setAdminRoute] = useState(location.hash.slice(1));
   useEffect(() => {
     const update = () => {
       setAdminRoute(location.hash.slice(1));
       if (location.hash.startsWith("#/admin/pedidos")) setPage("orders");
+      if (location.hash.startsWith("#/admin/pagamentos")) setPage("payments");
     };
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
@@ -1801,8 +1805,6 @@ function CustomerOrders({
 function PaymentSettings() {
   const [methods, setMethods] = useState([]);
   const [gateway, setGateway] = useState(null);
-  const [gatewayMessage, setGatewayMessage] = useState("");
-  const [checkingGateway, setCheckingGateway] = useState(false);
   useEffect(() => {
     api("/mercado-pago/status").then(setGateway).catch(reportLoadError);
   }, []);
@@ -1847,99 +1849,14 @@ function PaymentSettings() {
         title="Mercado Pago — cobrança automática"
         subtitle="Checkout Pro para os pedidos da loja online."
       >
-        <div className="payments-intro">
-          <CreditCard size={28} />
-          <div>
-            <b>
-              {gateway?.configured
-                ? "Servidor configurado"
-                : "Configure as credenciais no servidor"}
-            </b>
-            <p>
-              Defina MERCADO_PAGO_ACCESS_TOKEN, MERCADO_PAGO_PUBLIC_KEY,
-              MERCADO_PAGO_WEBHOOK_SECRET e PUBLIC_BASE_URL no ambiente do
-              servidor. Os segredos não são cadastrados nesta tela.
-            </p>
-            <p>
-              Ative Mercado Pago no cartão abaixo e salve. Com a opção ativa, o
-              checkout online oferece Mercado Pago; as demais formas continuam
-              nas vendas presenciais.
-            </p>
-            <p>
-              O cliente escolhe como pagar no Mercado Pago. A confirmação é
-              automática após aprovação. A administração pode solicitar e
-              acompanhar reembolsos na tela do pedido.
-            </p>
-            {gateway?.sandbox && <p>Ambiente de testes ativado.</p>}
-            {gateway?.auto_refund_fraud && (
-              <p>
-                Alertas de fraude autenticados bloqueiam a entrega e solicitam a
-                devolução integral automática dos pagamentos no Mercado Pago.
-              </p>
-            )}
-            {gateway?.missing?.length > 0 && (
-              <p>Configurações pendentes: {gateway.missing.join(", ")}</p>
-            )}
-            {gateway?.webhook_url && (
-              <p>
-                URL do webhook: <code>{gateway.webhook_url}</code>
-              </p>
-            )}
-            {!!gateway?.pending_notifications && (
-              <p role="alert">
-                {gateway.pending_notifications} notificações aguardam
-                processamento.
-              </p>
-            )}
-            <button
-              type="button"
-              disabled={checkingGateway || !gateway?.configured}
-              onClick={async () => {
-                setCheckingGateway(true);
-                setGatewayMessage("");
-                try {
-                  const result = await api("/mercado-pago/verify", {
-                    method: "POST",
-                    body: {},
-                  });
-                  setGatewayMessage(
-                    `Conexão verificada com a conta ${result.account_id}.`,
-                  );
-                } catch (e) {
-                  setGatewayMessage(e.message);
-                } finally {
-                  setCheckingGateway(false);
-                }
-              }}
-            >
-              Verificar conexão
-            </button>
-            <button
-              type="button"
-              disabled={checkingGateway || !gateway?.configured}
-              onClick={async () => {
-                setCheckingGateway(true);
-                try {
-                  const result = await api(
-                    "/mercado-pago/retry-notifications",
-                    { method: "POST", body: {} },
-                  );
-                  setGatewayMessage(
-                    `${result.processed} notificações verificadas.`,
-                  );
-                  setGateway(await api("/mercado-pago/status"));
-                } catch (e) {
-                  setGatewayMessage(e.message);
-                } finally {
-                  setCheckingGateway(false);
-                }
-              }}
-            >
-              Reprocessar notificações
-            </button>
-            {gatewayMessage && <p role="status">{gatewayMessage}</p>}
-          </div>
-        </div>
+        <MercadoPagoConnection
+          api={api}
+          gateway={gateway}
+          onChanged={async () => {
+            setGateway(await api("/mercado-pago/status"));
+            await load();
+          }}
+        />
       </Card>
       <Card
         title="Configuração das formas de pagamento"

@@ -10,10 +10,24 @@ import {
   User,
 } from "mercadopago";
 const requestBudget = new AsyncLocalStorage();
+const credentialScope = new AsyncLocalStorage();
+export const withMercadoPagoCredentials = (credentials, callback) =>
+  credentialScope.run(credentials, callback);
 export const mercadoPagoBudget = (_req, _res, next) =>
-  requestBudget.run({ deadline: Date.now() + 20000 }, next);
+  requestBudget.getStore()
+    ? next()
+    : requestBudget.run({ deadline: Date.now() + 20000 }, next);
 
 export function mercadoPagoConfig(env = process.env) {
+  const credentials = env === process.env ? credentialScope.getStore() : null;
+  if (credentials)
+    env = {
+      ...env,
+      MERCADO_PAGO_ACCESS_TOKEN: credentials.token,
+      MERCADO_PAGO_PUBLIC_KEY: credentials.publicKey,
+      MERCADO_PAGO_WEBHOOK_SECRET: credentials.secret,
+      MERCADO_PAGO_SANDBOX: String(credentials.sandbox),
+    };
   let base;
   try {
     const url = new URL(env.PUBLIC_BASE_URL);
