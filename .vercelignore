@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+server/data/
+backups-encrypted/
+docs/capturas/
+coverage/
+*.key
+*.pem
+*.p12
+*.pfx

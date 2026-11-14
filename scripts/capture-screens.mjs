@@ -500,13 +500,22 @@ try {
       ],
     );
   }
+  await page
+    .context()
+    .addCookies([
+      {
+        name: "cf_customer",
+        value: clientToken,
+        url: origin,
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
   await page.evaluate(
-    ({ token, cart }) => {
-      localStorage.setItem("customerToken", token);
+    ({ cart }) => {
       localStorage.setItem("customerCart", JSON.stringify(cart));
     },
     {
-      token: clientToken,
       cart: [
         { ...products[0], quantity: 1 },
         { ...products[2], quantity: 2 },
@@ -663,10 +672,17 @@ try {
       [".login-customer-links", "Acessos públicos"],
     ],
   );
-  await page.evaluate(
-    (token) => localStorage.setItem("token", token),
-    adminToken,
-  );
+  await page
+    .context()
+    .addCookies([
+      {
+        name: "cf_admin",
+        value: adminToken,
+        url: origin,
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
   await goto("/admin");
   await page.locator(".stats").first().waitFor();
   await capture(
@@ -948,10 +964,17 @@ try {
       ["article.commerce-card form", "Resposta ao cliente"],
     ],
   );
-  await page.evaluate(
-    (token) => localStorage.setItem("token", token),
-    staffToken,
-  );
+  await page
+    .context()
+    .addCookies([
+      {
+        name: "cf_admin",
+        value: staffToken,
+        url: origin,
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
   await goto("/admin");
   await page.locator(".stats").first().waitFor();
   await capture(
@@ -1018,10 +1041,17 @@ try {
       ["#customer-password-form", "Troca de senha"],
     ],
   );
-  await page.evaluate(
-    (token) => localStorage.setItem("token", token),
-    adminToken,
-  );
+  await page
+    .context()
+    .addCookies([
+      {
+        name: "cf_admin",
+        value: adminToken,
+        url: origin,
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
   await goto("/admin");
   await page.locator(".stats").first().waitFor();
   await capture(

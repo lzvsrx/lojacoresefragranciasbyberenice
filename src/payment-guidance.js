@@ -1,4 +1,13 @@
 export const PAYMENT_GUIDANCE = {
+  MP: {
+    title: "Mercado Pago",
+    description: "Cobrança automática pelo Checkout Pro na loja online.",
+    reference: "Identificador do pagamento no Mercado Pago.",
+    steps:
+      "O cliente paga no Mercado Pago. A confirmação online é feita pela API; nas vendas presenciais, confira o recebimento na sua conta.",
+    instructions:
+      "Pague no ambiente seguro do Mercado Pago. Aguarde a confirmação automática no seu pedido.",
+  },
   "01": {
     title: "Dinheiro",
     description: "Para pagamento presencial ou na retirada.",

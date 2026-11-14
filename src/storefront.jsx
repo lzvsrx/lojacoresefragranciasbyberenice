@@ -105,7 +105,6 @@ function CustomerAccess({ api, register, onLogin, writable, phone }) {
         register ? "/customer/register" : "/customer/login",
         { method: "POST", body, session: "public" },
       );
-      localStorage.setItem("customerToken", result.token);
       onLogin(result.user);
     } catch (e) {
       setError(e.message);
@@ -113,9 +112,15 @@ function CustomerAccess({ api, register, onLogin, writable, phone }) {
       setSaving(false);
     }
   };
-  const returnQuery = location.hash.includes("voltar=sacola")
-    ? "?voltar=sacola"
-    : "";
+  const orderReturn = new URLSearchParams(
+    location.hash.split("?")[1] || "",
+  ).get("pedido");
+  const returnQuery =
+    orderReturn && /^\d+$/.test(orderReturn)
+      ? `?pedido=${orderReturn}`
+      : location.hash.includes("voltar=sacola")
+        ? "?voltar=sacola"
+        : "";
   return (
     <section className="customer-access">
       <div className="customer-access-story">
@@ -209,7 +214,7 @@ function CustomerAccess({ api, register, onLogin, writable, phone }) {
             <input
               required
               type="password"
-              minLength={register ? 8 : undefined}
+              minLength={register ? 12 : undefined}
               aria-label="Senha"
               maxLength={72}
               autoComplete={register ? "new-password" : "current-password"}
@@ -218,7 +223,7 @@ function CustomerAccess({ api, register, onLogin, writable, phone }) {
             />
             {register && (
               <small>
-                De 8 a 72 caracteres, com maiúscula, minúscula e número.
+                De 12 a 72 caracteres, com maiúscula, minúscula e número.
               </small>
             )}
           </label>
@@ -228,7 +233,7 @@ function CustomerAccess({ api, register, onLogin, writable, phone }) {
               <input
                 required
                 type="password"
-                minLength={8}
+                minLength={12}
                 maxLength={72}
                 autoComplete="new-password"
                 value={form.confirmation}
@@ -303,9 +308,7 @@ function CustomerAccess({ api, register, onLogin, writable, phone }) {
 
 export default function Storefront({ api, route }) {
   const [user, setUser] = useState(null);
-  const [checkingUser, setCheckingUser] = useState(
-    !!localStorage.getItem("customerToken"),
-  );
+  const [checkingUser, setCheckingUser] = useState(true);
   const [writable, setWritable] = useState(null);
   const [filters, setFilters] = useState(initialFilters);
   const [catalog, setCatalog] = useState(emptyCatalog);
@@ -351,26 +354,22 @@ export default function Storefront({ api, route }) {
       );
     };
     window.addEventListener("customer-auth-expired", expired);
-    if (localStorage.getItem("customerToken"))
-      api("/me", { session: "customer" })
-        .then((current) => {
-          if (current.role !== "cliente") {
-            localStorage.removeItem("customerToken");
-            throw new Error("Use uma conta de cliente");
-          }
-          if (active) setUser(current);
-        })
-        .catch((e) => {
-          if (e.status === 401 || e.status === 403)
-            localStorage.removeItem("customerToken");
-          if (active) {
-            setUser(null);
-            setNotice(e.message);
-          }
-        })
-        .finally(() => {
-          if (active) setCheckingUser(false);
-        });
+    api("/me", { session: "customer", silentAuth: true })
+      .then((current) => {
+        if (current.role !== "cliente") {
+          throw new Error("Use uma conta de cliente");
+        }
+        if (active) setUser(current);
+      })
+      .catch((e) => {
+        if (active) {
+          setUser(null);
+          if (e.status !== 401) setNotice(e.message);
+        }
+      })
+      .finally(() => {
+        if (active) setCheckingUser(false);
+      });
     api("/storage-status", { session: "public" })
       .then((status) => {
         if (active) setWritable(status.writable);
@@ -479,13 +478,29 @@ export default function Storefront({ api, route }) {
   const login = (current) => {
     setUser(current);
     setNotice("");
-    location.hash = route.includes("voltar=sacola") ? "/sacola" : "/cliente";
+    const orderReturn = new URLSearchParams(route.split("?")[1] || "").get(
+      "pedido",
+    );
+    location.hash =
+      orderReturn && /^\d+$/.test(orderReturn)
+        ? `/pedidos/${orderReturn}?mp_result=resume`
+        : route.includes("voltar=sacola")
+          ? "/sacola"
+          : "/cliente";
   };
-  const logout = () => {
-    localStorage.removeItem("customerToken");
-    setUser(null);
-    setQuote(null);
-    location.hash = "/loja";
+  const logout = async (all = false) => {
+    try {
+      await api(all ? "/logout-all" : "/logout", {
+        method: "POST",
+        session: "customer",
+        body: {},
+      });
+      setUser(null);
+      setQuote(null);
+      location.hash = "/loja";
+    } catch (error) {
+      setNotice(error.message);
+    }
   };
   const prepare = async () => {
     if (!user) {
@@ -605,7 +620,6 @@ export default function Storefront({ api, route }) {
             user={user}
             onProfileChanged={setUser}
             onPasswordChanged={() => {
-              localStorage.removeItem("customerToken");
               setUser(null);
               setNotice("Senha alterada. Entre novamente com a nova senha.");
               location.hash = "/cliente/entrar";
@@ -620,7 +634,7 @@ export default function Storefront({ api, route }) {
               <a className="button primary" href="#/loja">
                 Explorar produtos
               </a>
-              <button onClick={logout}>Sair da conta</button>
+              <button onClick={() => logout()}>Sair da conta</button>
             </section>
           ) : (
             <CustomerAccess
@@ -660,13 +674,16 @@ export default function Storefront({ api, route }) {
                   <a className="button" href="#/atendimento">
                     Atendimento e meus dados
                   </a>
-                  <button onClick={logout}>
+                  <button onClick={() => logout()}>
                     <LogOut size={16} /> Sair da conta
+                  </button>
+                  <button onClick={() => logout(true)}>
+                    Sair de todos os dispositivos
                   </button>
                 </div>
                 <p className="store-fineprint">
                   Finalize sua compra pela sacola e acompanhe o pedido aqui. O
-                  pagamento é orientado e conferido pela equipe.
+                  pagamento segue a opção escolhida no checkout.
                 </p>
               </>
             ) : (

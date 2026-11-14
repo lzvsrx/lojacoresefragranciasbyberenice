@@ -1,27 +1,33 @@
 import express from "express";
 import { installCommerce } from "./commerce.js";
+import { mercadoPagoConfig } from "./mercado-pago.js";
+import {
+  securityConfig,
+  signingSecret,
+  requestProtection,
+  installSecurityTables,
+  auditWriter,
+} from "./security.js";
+import { sessionService } from "./sessions.js";
+import { DatabaseRateLimitStore } from "./rate-limit-store.js";
+import { sanitizeUploadedImage, createUploadGate } from "./uploads.js";
 import cors from "cors";
 import helmet from "helmet";
 import {
   createApiLimiter,
   createLoginLimiter,
   createRegistrationLimiter,
+  createLoginIpLimiter,
 } from "./rate-limits.js";
 import { createDatabase } from "./database.js";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
 import multer from "multer";
 import Papa from "papaparse";
 import PDFDocument from "pdfkit";
 import path from "path";
 import { fileURLToPath } from "url";
-import { randomBytes, randomUUID } from "crypto";
-import {
-  existsSync,
-  readFileSync,
-  writeFileSync,
-  mkdirSync,
-} from "fs";
+import { randomUUID } from "crypto";
+import { existsSync, mkdirSync } from "fs";
 import { loadEnvFile } from "node:process";
 import {
   inputError,
@@ -35,12 +41,19 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 if (process.env.NODE_ENV !== "test" && existsSync(path.join(root, ".env")))
   loadEnvFile(path.join(root, ".env"));
 const isVercel = Boolean(process.env.VERCEL);
+const security = securityConfig();
 const databasePath =
   process.env.DATABASE_PATH ||
   (isVercel
     ? path.join(process.env.TMPDIR || "/tmp", "store.db")
     : path.join(root, "server/data/store.db"));
 const remoteUrl = process.env.TURSO_DATABASE_URL;
+if (
+  security.production &&
+  isVercel &&
+  (!remoteUrl || remoteUrl.startsWith("file:"))
+)
+  throw new Error("Produção na Vercel exige banco remoto persistente");
 if (
   remoteUrl &&
   !process.env.TURSO_AUTH_TOKEN &&
@@ -53,7 +66,9 @@ if (!remoteUrl) {
   mkdirSync(path.dirname(databasePath), { recursive: true });
 }
 if (!remoteUrl && !existsSync(databasePath)) {
-  throw new Error("Banco local ausente. Execute npm run sync:from-cloud para restaurar server/data/store.db.");
+  throw new Error(
+    "Banco local ausente. Execute npm run sync:from-cloud para restaurar server/data/store.db.",
+  );
 }
 const db = await createDatabase({
   filename: databasePath,
@@ -138,6 +153,14 @@ await db.transaction(async () => {
   WHERE missing.product_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM products p WHERE p.id=missing.product_id)`);
   for (const method of [
     [
+      "MP",
+      "Mercado Pago",
+      0,
+      1,
+      1,
+      "Pagamento online pelo Checkout Pro do Mercado Pago.",
+    ],
+    [
       "01",
       "Dinheiro",
       1,
@@ -198,13 +221,17 @@ await db.transaction(async () => {
     await seedPayment.run(...method);
 })();
 const app = express();
-if (isVercel) app.set("trust proxy", 1);
+app.set("trust proxy", security.trustProxy);
+app.set("query parser", "simple");
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 4 * 1024 * 1024,
     files: 1,
     fields: 20,
+    parts: 21,
+    fieldSize: 16 * 1024,
+    fieldNameSize: 100,
   },
   fileFilter: (_req, file, callback) => {
     const allowed = [
@@ -220,35 +247,73 @@ const upload = multer({
         );
   },
 });
-let secret = process.env.JWT_SECRET;
-if (!secret && !isVercel) {
-  const secretPath = path.join(path.dirname(databasePath), ".jwt-secret");
-  if (!existsSync(secretPath))
-    writeFileSync(secretPath, randomBytes(48).toString("hex"), {
-      flag: "wx",
-      mode: 0o600,
-    });
-  secret = readFileSync(secretPath, "utf8").trim();
+const uploadGate = createUploadGate();
+const secret = signingSecret(
+  process.env,
+  path.dirname(databasePath),
+  security.production,
+);
+if (security.production) {
+  const initialAdmin = await db
+    .prepare("SELECT password FROM users WHERE username='admin'")
+    .get();
+  if (initialAdmin && (await bcrypt.compare("admin123", initialAdmin.password)))
+    throw new Error(
+      "Troque a senha de exemplo do administrador antes de iniciar em produção",
+    );
 }
-if (!secret) {
-  secret = randomBytes(48).toString("hex");
-  console.warn(
-    "Configure JWT_SECRET na hospedagem para manter as sessões entre instâncias.",
-  );
-}
+await installSecurityTables(db);
+const audit = auditWriter(db, secret);
 app.disable("x-powered-by");
 app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
-        scriptSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
-        imgSrc: ["'self'", "data:", "blob:"],
-        connectSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "https://sdk.mercadopago.com",
+          "https://www.mercadopago.com",
+          "https://http2.mlstatic.com",
+        ],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "https://fonts.googleapis.com",
+          "https://http2.mlstatic.com",
+        ],
+        fontSrc: [
+          "'self'",
+          "https://fonts.gstatic.com",
+          "https://http2.mlstatic.com",
+          "data:",
+        ],
+        imgSrc: [
+          "'self'",
+          "data:",
+          "blob:",
+          "https://http2.mlstatic.com",
+          "https://*.mercadopago.com",
+        ],
+        connectSrc: [
+          "'self'",
+          "https://api.mercadopago.com",
+          "https://api.mercadolibre.com",
+          "https://*.mercadopago.com",
+          "https://*.mercadopago.com.br",
+          "https://*.mlstatic.com",
+        ],
+        frameSrc: [
+          "https://*.mercadopago.com",
+          "https://*.mercadopago.com.br",
+          "https://*.mercadolibre.com",
+          "https://*.mercadolivre.com.br",
+        ],
         frameAncestors: ["'none'"],
-        upgradeInsecureRequests: isVercel ? [] : null,
+        baseUri: ["'none'"],
+        objectSrc: ["'none'"],
+        formAction: ["'self'"],
+        upgradeInsecureRequests: security.production ? [] : null,
       },
     },
     crossOriginResourcePolicy: {
@@ -256,22 +321,30 @@ app.use(
     },
   }),
 );
+app.use(requestProtection(security));
+app.use((_req, res, next) => {
+  res.set(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=()",
+  );
+  next();
+});
 app.use(
   cors({
     origin: (origin, callback) =>
-      !origin ||
-      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ||
-      origin === "https://lojacoresefragranciasbyberenice.vercel.app"
+      !origin || security.allowedOrigin(origin)
         ? callback(null, true)
         : callback(null, false),
     methods: ["GET", "POST", "PUT", "DELETE"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Session-Portal"],
+    credentials: true,
     maxAge: 86400,
   }),
 );
 app.use(
   express.json({
-    limit: "1mb",
+    limit: "128kb",
+    inflate: false,
     type: "application/json",
   }),
 );
@@ -302,49 +375,25 @@ const safeUser = (u) =>
     preferred_style: u.preferred_style,
     has_image: !!u.profile_image,
   };
-const auth =
-  (roles = []) =>
-  async (req, res, next) => {
-    try {
-      const header = req.headers.authorization || "";
-      if (!header.startsWith("Bearer ")) throw new Error();
-      const tokenUser = jwt.verify(header.slice(7), secret, {
-          algorithms: ["HS256"],
-          issuer: "cores-fragrancias-api",
-          audience: "cores-fragrancias-web",
-        }),
-        current = await db
-          .prepare(
-            "SELECT id,username,role,name,session_version FROM users WHERE id=?",
-          )
-          .get(tokenUser.id);
-      if (!current || tokenUser.session_version !== current.session_version)
-        throw new Error();
-      req.user = safeUser(current);
-      if (roles.length && !roles.includes(current.role))
-        return res.status(403).json({
-          error: "Seu perfil não possui permissão para esta ação",
-        });
-      next();
-    } catch (error) {
-      if (
-        error.message &&
-        !["JsonWebTokenError", "TokenExpiredError", "NotBeforeError"].includes(
-          error.name,
-        )
-      )
-        return next(error);
-      res.status(401).json({
-        error: "Sessão inválida ou expirada",
-      });
-    }
-  };
+const sessions = sessionService({
+  db,
+  secret,
+  config: security,
+  safeUser,
+  audit,
+});
+const auth = sessions.authenticate;
 const productJson = (p) => ({
   ...p,
   image: undefined,
   image_url: p.image ? `/api/products/${p.id}/image` : null,
 });
-const loginLimiter = createLoginLimiter();
+const loginLimiter = createLoginLimiter(
+  new DatabaseRateLimitStore(db, secret, "login-failures"),
+);
+const loginIpLimiter = createLoginIpLimiter(
+  new DatabaseRateLimitStore(db, secret, "login-ip"),
+);
 const clean = (value, max = 150) =>
   String(value ?? "")
     .trim()
@@ -354,7 +403,7 @@ const validEmail = (value) =>
   !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 const validPassword = (value) =>
   typeof value === "string" &&
-  value.length >= 8 &&
+  value.length >= 12 &&
   value.length <= 72 &&
   Buffer.byteLength(value, "utf8") <= 72 &&
   /[a-z]/.test(value) &&
@@ -384,24 +433,19 @@ const validateUser = (u, isEdit = false) => {
   if (!validEmail(u.email)) return "E-mail inválido";
   if (!isEdit || u.password) {
     if (!validPassword(u.password))
-      return "A senha deve ter entre 8 e 72 caracteres, com letra maiúscula, minúscula e número";
+      return "A senha deve ter entre 12 e 72 caracteres, com letra maiúscula, minúscula e número";
   }
   return null;
 };
-const sessionResponse = (u) => ({
-  user: safeUser(u),
-  token: jwt.sign({ id: u.id, session_version: u.session_version }, secret, {
-    algorithm: "HS256",
-    expiresIn: "8h",
-    issuer: "cores-fragrancias-api",
-    audience: "cores-fragrancias-web",
-    subject: String(u.id),
-  }),
-});
 const login = async (req, res) => {
   const username = clean(req.body?.username, 40).toLowerCase(),
     password = String(req.body?.password || "");
-  if (Buffer.byteLength(password, "utf8") > 72)
+  if (
+    typeof req.body?.password !== "string" ||
+    typeof req.body?.username !== "string" ||
+    Buffer.byteLength(password, "utf8") > 72 ||
+    !/^[a-z0-9._-]{3,40}$/.test(username)
+  )
     return res.status(401).json({
       error: "Usuário ou senha incorretos",
     });
@@ -410,23 +454,65 @@ const login = async (req, res) => {
     .get(username);
   const hash =
     u?.password ||
-    "$2b$10$C6UzMDM.H6dfI/f/IKxGhu8djhL4qSP2jB5N1.klM2.V5iQn.7gNi";
+    "$2b$12$C6UzMDM.H6dfI/f/IKxGhu8djhL4qSP2jB5N1.klM2.V5iQn.7gNi";
   if (
     !(await bcrypt.compare(password, hash)) ||
     !u ||
     (req.path === "/api/customer/login" && u.role !== "cliente") ||
     (req.body?.portal === "admin" && !["admin", "funcionario"].includes(u.role))
-  )
+  ) {
+    await audit(req, "login.failed", null, "login");
     return res.status(401).json({
       error: "Usuário ou senha incorretos",
     });
-  res.set("Cache-Control", "no-store").json(sessionResponse(u));
+  }
+  if (bcrypt.getRounds(u.password) < 12) {
+    await db
+      .prepare("UPDATE users SET password=? WHERE id=? AND password=?")
+      .run(await bcrypt.hash(password, 12), u.id, u.password);
+  }
+  res.set("Cache-Control", "no-store").json(await sessions.issue(u, req, res));
 };
-app.post("/api/login", loginLimiter, login);
-app.post("/api/customer/login", loginLimiter, login);
+app.post("/api/login", loginIpLimiter, loginLimiter, login);
+app.post("/api/customer/login", loginIpLimiter, loginLimiter, login);
+app.post("/api/logout", auth(), sessions.logout);
+app.post("/api/logout-all", auth(), async (req, res) => {
+  await db.transaction(async () => {
+    await db
+      .prepare("UPDATE users SET session_version=session_version+1 WHERE id=?")
+      .run(req.user.id);
+    await db
+      .prepare("DELETE FROM auth_sessions WHERE user_id=?")
+      .run(req.user.id);
+    await audit(req, "session.all_revoked");
+  })();
+  res.json({ ok: true });
+});
+app.get("/api/security/audit", auth(["admin"]), async (req, res) => {
+  const limit = numberValue(req.query.limit ?? 50, "Limite", {
+    integer: true,
+    min: 1,
+    max: 100,
+  });
+  const before = numberValue(
+    req.query.before ?? Number.MAX_SAFE_INTEGER,
+    "Cursor",
+    { integer: true, min: 1, max: Number.MAX_SAFE_INTEGER },
+  );
+  await audit(req, "security.audit.read");
+  res.json(
+    await db
+      .prepare(
+        "SELECT id,created_at,request_id,user_id,action,target,ip_hash FROM security_audit WHERE id<? ORDER BY id DESC LIMIT ?",
+      )
+      .all(before, limit),
+  );
+});
 app.post(
   "/api/customer/register",
-  createRegistrationLimiter(),
+  createRegistrationLimiter(
+    new DatabaseRateLimitStore(db, secret, "registration"),
+  ),
   async (req, res) => {
     const b = normalizeUser({
       name: req.body?.name,
@@ -458,7 +544,7 @@ app.post(
         .prepare("SELECT * FROM users WHERE id=?")
         .get(Number(created.lastInsertRowid));
     })();
-    res.status(201).json(sessionResponse(user));
+    res.status(201).json(await sessions.issue(user, req, res));
   },
 );
 app.get("/api/me", auth(), async (req, res) =>
@@ -479,24 +565,33 @@ app.get("/api/users/:id/image", auth(), async (req, res) => {
     .type(x.profile_image[0] === 0x89 ? "image/png" : "image/jpeg")
     .send(x.profile_image);
 });
-app.put("/api/me/image", auth(), upload.single("image"), async (req, res) => {
-  if (!req.file || !["image/png", "image/jpeg"].includes(req.file.mimetype))
-    return res.status(400).json({
-      error: "Envie uma imagem PNG ou JPEG",
-    });
-  await db
-    .prepare("UPDATE users SET profile_image=? WHERE id=?")
-    .run(req.file.buffer, req.user.id);
-  res.json(
-    safeUser(
-      await db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id),
-    ),
-  );
-});
+app.put(
+  "/api/me/image",
+  auth(),
+  uploadGate,
+  upload.single("image"),
+  sanitizeUploadedImage,
+  async (req, res) => {
+    if (!req.file || !["image/png", "image/jpeg"].includes(req.file.mimetype))
+      return res.status(400).json({
+        error: "Envie uma imagem PNG ou JPEG",
+      });
+    await db
+      .prepare("UPDATE users SET profile_image=? WHERE id=?")
+      .run(req.file.buffer, req.user.id);
+    res.json(
+      safeUser(
+        await db.prepare("SELECT * FROM users WHERE id=?").get(req.user.id),
+      ),
+    );
+  },
+);
 app.put(
   "/api/users/:id/image",
   auth(["admin"]),
+  uploadGate,
   upload.single("image"),
+  sanitizeUploadedImage,
   async (req, res) => {
     if (!req.file || !["image/png", "image/jpeg"].includes(req.file.mimetype))
       return res.status(400).json({
@@ -691,7 +786,9 @@ app.get("/api/products/:id/image", async (req, res) => {
 app.post(
   "/api/products",
   auth(["admin", "funcionario"]),
+  uploadGate,
   upload.single("image"),
+  sanitizeUploadedImage,
   async (req, res) => {
     const b = productInput(req.body);
     if (req.file && !["image/png", "image/jpeg"].includes(req.file.mimetype))
@@ -719,7 +816,9 @@ app.post(
 app.put(
   "/api/products/:id",
   auth(["admin", "funcionario"]),
+  uploadGate,
   upload.single("image"),
+  sanitizeUploadedImage,
   async (req, res) => {
     const b = productInput(req.body);
     if (req.file && !["image/png", "image/jpeg"].includes(req.file.mimetype))
@@ -819,10 +918,10 @@ const sell = db.transaction(async (data, userId) => {
     method = await db
       .prepare("SELECT * FROM payment_methods WHERE id=? AND active=1")
       .get(data.paymentMethodId);
-  if (!p) throw new Error("Produto não encontrado");
+  if (!p) throw inputError("Produto não encontrado");
   if (expirationStatus(p.expiration_date)?.status === "expired")
     throw inputError("Produto vencido. Retire-o do estoque antes de vender.");
-  if (!method) throw new Error("Forma de pagamento inválida ou desativada");
+  if (!method) throw inputError("Forma de pagamento inválida ou desativada");
   if (
     data.customerId &&
     !(await db
@@ -833,16 +932,16 @@ const sell = db.transaction(async (data, userId) => {
   if (!Number.isFinite(p.price) || p.price < 0)
     throw inputError("Corrija o preço do produto antes de vender");
   if (data.quantity < 1 || p.quantity < data.quantity)
-    throw new Error("Estoque insuficiente");
+    throw inputError("Estoque insuficiente");
   if (method.requires_reference && !data.reference)
-    throw new Error("Informe TxID, NSU ou código de autorização");
+    throw inputError("Informe TxID, NSU ou código de autorização");
   if (data.installments < 1 || data.installments > method.max_installments)
-    throw new Error("Quantidade de parcelas inválida");
+    throw inputError("Quantidade de parcelas inválida");
   const total = Number((p.price * data.quantity).toFixed(2)),
     received =
       data.amountReceived == null ? total : Number(data.amountReceived);
   if (method.code === "01" && received < total)
-    throw new Error("Valor recebido é menor que o total");
+    throw inputError("Valor recebido é menor que o total");
   const change =
       method.code === "01" ? Number((received - total).toFixed(2)) : 0,
     orderNumber = `PED-${randomUUID()}`;
@@ -917,7 +1016,7 @@ app.post("/api/sales", auth(["admin", "funcionario"]), async (req, res) => {
         fiscalKey: clean(b.fiscal_key, 60),
       };
     if (!Number.isInteger(data.productId) || !Number.isInteger(data.quantity))
-      throw new Error("Dados da venda inválidos");
+      throw inputError("Dados da venda inválidos");
     numberValue(data.installments, "Parcelas", {
       integer: true,
       min: 1,
@@ -934,9 +1033,7 @@ app.post("/api/sales", auth(["admin", "funcionario"]), async (req, res) => {
       throw inputError("Situação do pedido inválida");
     res.status(201).json(await sell(data, req.user.id));
   } catch (e) {
-    res.status(400).json({
-      error: e.message,
-    });
+    throw e;
   }
 });
 app.get("/api/sales", auth(["admin", "funcionario"]), async (req, res) =>
@@ -963,13 +1060,13 @@ app.post("/api/sales/:id/cancel", auth(["admin"]), async (req, res) => {
       const sale = await db
         .prepare("SELECT * FROM sales WHERE id=?")
         .get(req.params.id);
-      if (!sale) throw new Error("Venda não encontrada");
+      if (!sale) throw inputError("Venda não encontrada");
       if (sale.order_status === "Cancelado")
-        throw new Error("Venda já cancelada");
+        throw inputError("Venda já cancelada");
       const product = await db
         .prepare("SELECT id,quantity FROM products WHERE id=?")
         .get(sale.product_id);
-      if (!product) throw new Error("Produto da venda não encontrado");
+      if (!product) throw inputError("Produto da venda não encontrado");
       const nextQuantity = product.quantity + sale.quantity;
       await db
         .prepare("UPDATE products SET quantity=? WHERE id=?")
@@ -999,9 +1096,7 @@ app.post("/api/sales/:id/cancel", auth(["admin"]), async (req, res) => {
     })();
     res.json(result);
   } catch (error) {
-    res.status(400).json({
-      error: error.message,
-    });
+    throw error;
   }
 });
 app.get(
@@ -1111,20 +1206,20 @@ app.post(
         type = String(req.body?.movement_type || "").toUpperCase(),
         reason = clean(req.body?.reason, 200);
       if (!Number.isInteger(amount) || amount < 1)
-        throw new Error("Informe uma quantidade inteira maior que zero");
+        throw inputError("Informe uma quantidade inteira maior que zero");
       if (!["ENTRADA", "SAIDA", "AJUSTE"].includes(type))
-        throw new Error("Tipo de movimentação inválido");
+        throw inputError("Tipo de movimentação inválido");
       if (reason.length < 3)
-        throw new Error("Informe o motivo da movimentação");
+        throw inputError("Informe o motivo da movimentação");
       const result = await db.transaction(async () => {
         const product = await db
           .prepare("SELECT id,quantity FROM products WHERE id=?")
           .get(productId);
-        if (!product) throw new Error("Produto não encontrado");
+        if (!product) throw inputError("Produto não encontrado");
         const delta = type === "SAIDA" ? -amount : amount,
           nextQuantity = product.quantity + delta;
         if (nextQuantity < 0)
-          throw new Error("Estoque insuficiente para esta saída");
+          throw inputError("Estoque insuficiente para esta saída");
         numberValue(nextQuantity, "Saldo de estoque", {
           integer: true,
         });
@@ -1151,9 +1246,7 @@ app.post(
       })();
       res.status(201).json(result);
     } catch (error) {
-      res.status(400).json({
-        error: error.message,
-      });
+      throw error;
     }
   },
 );
@@ -1177,6 +1270,11 @@ app.put("/api/payment-methods/:id", auth(["admin"]), async (req, res) => {
     return res.status(404).json({
       error: "Forma de pagamento não encontrada",
     });
+  if (method.code === "MP" && b.active && !mercadoPagoConfig().configured)
+    throw inputError(
+      "Configure as credenciais e a URL pública do Mercado Pago no servidor antes de ativar",
+      400,
+    );
   const name = clean(b.name, 80),
     maxInstallments = numberValue(b.max_installments, "Parcelas", {
       integer: true,
@@ -1256,9 +1354,19 @@ app.get("/api/dashboard", auth(["admin", "funcionario"]), async (req, res) => {
     expirationProducts,
   });
 });
-app.get("/api/users", auth(["admin", "funcionario"]), async (_req, res) =>
+app.get("/api/users", auth(["admin", "funcionario"]), async (req, res) =>
   res.json(
-    (await db.prepare("SELECT * FROM users ORDER BY name").all()).map(safeUser),
+    (await db.prepare("SELECT * FROM users ORDER BY name").all()).map((u) =>
+      req.user.role === "admin" || u.role === "cliente" || u.id === req.user.id
+        ? safeUser(u)
+        : {
+            id: u.id,
+            username: u.username,
+            role: u.role,
+            name: u.name,
+            has_image: !!u.profile_image,
+          },
+    ),
   ),
 );
 app.post("/api/users", auth(["admin"]), async (req, res) => {
@@ -1343,21 +1451,27 @@ app.put("/api/users/:id", auth(["admin"]), async (req, res) => {
       b.preferred_brand,
       b.preferred_style,
     ];
+    let updated;
     if (b.password) {
       values.push(await bcrypt.hash(b.password, 12), id);
-      await db
+      updated = await db
         .prepare(
-          "UPDATE users SET username=?,role=?,name=?,birth_date=?,email=?,phone=?,cpf=?,preferred_type=?,preferred_brand=?,preferred_style=?,password=?,session_version=session_version+1 WHERE id=?",
+          "UPDATE users SET username=?,role=?,name=?,birth_date=?,email=?,phone=?,cpf=?,preferred_type=?,preferred_brand=?,preferred_style=?,password=?,session_version=session_version+1 WHERE id=? AND (role<>'admin' OR ?='admin' OR (SELECT COUNT(*) FROM users WHERE role='admin')>1)",
         )
-        .run(...values);
+        .run(...values, b.role);
     } else {
       values.push(id);
-      await db
+      updated = await db
         .prepare(
-          "UPDATE users SET username=?,role=?,name=?,birth_date=?,email=?,phone=?,cpf=?,preferred_type=?,preferred_brand=?,preferred_style=? WHERE id=?",
+          "UPDATE users SET username=?,role=?,name=?,birth_date=?,email=?,phone=?,cpf=?,preferred_type=?,preferred_brand=?,preferred_style=?,session_version=session_version+1 WHERE id=? AND (role<>'admin' OR ?='admin' OR (SELECT COUNT(*) FROM users WHERE role='admin')>1)",
         )
-        .run(...values);
+        .run(...values, b.role);
     }
+    if (!updated.changes)
+      throw inputError(
+        "A alteração deixaria a loja sem administrador. Atualize a lista e tente novamente.",
+        409,
+      );
     res.json({
       ok: true,
     });
@@ -1406,7 +1520,16 @@ app.delete("/api/users/:id", auth(["admin"]), async (req, res) => {
       error: "O sistema precisa manter pelo menos um administrador",
     });
   try {
-    await db.prepare("DELETE FROM users WHERE id=?").run(id);
+    await db.transaction(async () => {
+      await db.prepare("DELETE FROM auth_sessions WHERE user_id=?").run(id);
+      const removed = await db
+        .prepare(
+          "DELETE FROM users WHERE id=? AND (role<>'admin' OR (SELECT COUNT(*) FROM users WHERE role='admin')>1)",
+        )
+        .run(id);
+      if (!removed.changes)
+        throw inputError("Não é possível excluir o último administrador", 409);
+    })();
     res.json({
       ok: true,
     });
@@ -1708,12 +1831,18 @@ app.get(
 app.post(
   "/api/import/products",
   auth(["admin", "funcionario"]),
+  uploadGate,
   upload.single("file"),
   async (req, res) => {
     if (!req.file)
       return res.status(400).json({
         error: "Envie um CSV",
       });
+    if (
+      !["text/csv", "application/vnd.ms-excel"].includes(req.file.mimetype) ||
+      req.file.buffer.includes(0)
+    )
+      throw inputError("Envie um CSV de texto válido");
     const parsed = Papa.parse(req.file.buffer.toString("utf8"), {
       header: true,
       skipEmptyLines: true,
@@ -1721,6 +1850,10 @@ app.post(
     if (parsed.errors.length)
       throw inputError(
         "CSV inválido: confira as colunas e as aspas do arquivo",
+      );
+    if (parsed.data.length > 5000 || (parsed.meta.fields?.length || 0) > 20)
+      throw inputError(
+        "Importe no máximo 5.000 linhas e 20 colunas por arquivo",
       );
     if (!parsed.meta.fields?.includes("nome"))
       throw inputError(
@@ -1792,19 +1925,21 @@ app.post(
 app.put(
   "/api/customer/password",
   auth(["cliente"]),
-  createRegistrationLimiter(),
+  createRegistrationLimiter(
+    new DatabaseRateLimitStore(db, secret, "password-change"),
+  ),
   async (req, res) => {
     const b = req.body || {};
     if (!validPassword(b.password))
       throw inputError(
-        "Nova senha: 8 a 72 caracteres, com maiúscula, minúscula e número",
+        "Nova senha: 12 a 72 caracteres, com maiúscula, minúscula e número",
       );
     const current = await db
       .prepare("SELECT password FROM users WHERE id=?")
       .get(req.user.id);
     if (
       typeof b.current_password !== "string" ||
-      b.current_password.length > 72 ||
+      Buffer.byteLength(b.current_password, "utf8") > 72 ||
       !(await bcrypt.compare(b.current_password, current.password))
     )
       throw inputError("Senha atual incorreta", 403);
@@ -1834,30 +1969,54 @@ app.use("/api", (_req, res) =>
     error: "Rota não encontrada",
   }),
 );
-app.use((err, _req, res, _next) => {
+app.use((err, req, res, _next) => {
   if (res.headersSent) return res.end();
   const status =
     err instanceof multer.MulterError
       ? err.code === "LIMIT_FILE_SIZE"
         ? 413
         : 400
-      : err.status || 500;
+      : Number.isInteger(err.status) && err.status >= 400 && err.status <= 599
+        ? err.status
+        : 500;
+  if (status >= 500)
+    console.error(
+      JSON.stringify({
+        event: "request.failed",
+        requestId: req.requestId,
+        code: typeof err.code === "string" ? err.code : "INTERNAL_ERROR",
+      }),
+    );
   res.status(status).json({
     error:
       err.code === "LIMIT_FILE_SIZE"
         ? "Arquivo excede o limite de 4 MB"
-        : status < 500
-          ? err.message
-          : "Não foi possível concluir a operação",
+        : err.type === "entity.parse.failed"
+          ? "JSON inválido"
+          : err.type === "entity.too.large"
+            ? "Requisição excede o limite permitido"
+            : err.type === "encoding.unsupported"
+              ? "Corpos de requisição comprimidos não são aceitos"
+              : status < 500
+                ? err.message
+                : "Não foi possível concluir a operação",
   });
 });
 if (
   (!isVercel || process.env.FORCE_LISTEN === "1") &&
   process.env.NODE_ENV !== "test"
-)
-  app.listen(process.env.PORT || 3001, () =>
-    console.log(`Aplicação em http://localhost:${process.env.PORT || 3001}`),
+) {
+  const server = app.listen(
+    process.env.PORT || 3001,
+    process.env.HOST || (security.production ? "0.0.0.0" : "127.0.0.1"),
+    () =>
+      console.log(`Aplicação em http://localhost:${process.env.PORT || 3001}`),
   );
+  server.headersTimeout = 15000;
+  server.requestTimeout = 30000;
+  server.keepAliveTimeout = 5000;
+  server.maxRequestsPerSocket = 1000;
+}
 export default app;
 export const testDatabase = db.native;
 export { db as database };

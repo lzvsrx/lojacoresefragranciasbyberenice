@@ -1,4 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import {
+  MercadoPagoWallet,
+  MercadoPagoRefund,
+  mercadoPagoDevice,
+  prepareMercadoPago,
+} from "./mercado-pago-checkout.jsx";
 import "./commerce.css";
 const money = (cents) =>
   (Number(cents || 0) / 100).toLocaleString("pt-BR", {
@@ -111,10 +117,12 @@ export function ShopPolicies({ api, route }) {
           </p>
           <p>
             Ao finalizar, o pedido recebe um número e uma reserva de 24 horas. A
-            compra não é paga automaticamente. A equipe orienta o pagamento e
-            confere o recebimento; não envie dados completos de cartão nem CVV.
-            Uma reserva sem pagamento pode expirar. Caso já tenha pago, procure
-            imediatamente o atendimento para conciliação ou restituição.
+            cobrança pelo Mercado Pago é paga no ambiente seguro do provedor,
+            quando disponível, com confirmação automática. Nas demais formas, a
+            equipe orienta e confere o recebimento. Não envie dados de cartão
+            pelo atendimento. Uma reserva sem pagamento pode expirar. Caso já
+            tenha pago, procure imediatamente o atendimento para conciliação ou
+            restituição.
           </p>
           <p>
             As condições, os produtos e o total ficam registrados em Meus
@@ -153,11 +161,11 @@ export function ShopPolicies({ api, route }) {
           )}
           <h2>Pagamento</h2>
           <p>
-            As formas habilitadas aparecem no checkout. O pagamento é orientado
-            e conferido pela equipe. Este site não coleta dados de cartão, gera
-            cobranças ou confirma transferências automaticamente. O total do
-            checkout é à vista, sem parcelamento automático. Não pague uma conta
-            ou chave diferente da confirmada no canal oficial da loja.
+            As formas disponíveis aparecem no checkout. Com Mercado Pago, você
+            escolhe como pagar no ambiente seguro do provedor. Confira as
+            parcelas, encargos e total antes de pagar. A confirmação é
+            automática após aprovação. Nas demais formas, a equipe orienta e
+            confere o pagamento.
           </p>
           <p>
             Acompanhe envio, retirada e entrega em Meus pedidos. Em caso de
@@ -219,11 +227,15 @@ export function ShopPolicies({ api, route }) {
           </p>
           <h2>Armazenamento e segurança</h2>
           <p>
-            Este projeto usa armazenamento no navegador para a sessão e a
-            sacola. Não inclui publicidade comportamental ou analytics de
+            A sessão usa cookies protegidos, e a sacola fica no armazenamento
+            deste navegador. Registros de segurança guardam ações e
+            identificadores técnicos pseudonimizados, sem senhas ou dados de
+            cartão. Não inclui publicidade comportamental ou analytics de
             terceiros. Fontes são carregadas do Google Fonts, que recebe os
-            dados técnicos dessa conexão. Sair da conta remove sua sessão;
-            “Limpar sacola” remove os itens deste navegador.
+            dados técnicos dessa conexão. Ao pagar pelo Mercado Pago, seu SDK
+            coleta identificadores do dispositivo para prevenção de fraude e
+            recebe os dados necessários do pedido e do comprador. Sair da conta
+            remove sua sessão; “Limpar sacola” remove os itens deste navegador.
           </p>
           <p>
             Os dados são mantidos enquanto necessários ao atendimento, contrato
@@ -361,6 +373,10 @@ export function Checkout({ api, user, cart, onComplete }) {
     setAccepted(false);
     setKey(crypto.randomUUID());
   };
+  useEffect(() => {
+    if (loaded?.methods.some((m) => m.provider === "mercado_pago"))
+      void prepareMercadoPago(api).catch(() => {});
+  }, [api, loaded]);
   if (!user)
     return (
       <section className="commerce-page">
@@ -411,7 +427,15 @@ export function Checkout({ api, user, cart, onComplete }) {
           idempotency_key: key,
         },
       });
-      onComplete(order);
+      if (order.payment.provider === "mercado_pago") {
+        const device = await mercadoPagoDevice(api);
+        await api(`/customer/orders/${order.id}/payment`, {
+          method: "POST",
+          session: "customer",
+          body: device ? { device_id: device } : {},
+        });
+        onComplete(order);
+      } else onComplete(order);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -516,8 +540,10 @@ export function Checkout({ api, user, cart, onComplete }) {
             }
           </p>
           <p>
-            Pagamento à vista, conferido manualmente pela loja. A reserva dura
-            24 horas. Você não será cobrado por este site.
+            {methods.find((m) => m.id === Number(form.payment_method_id))
+              ?.provider === "mercado_pago"
+              ? "Você será direcionado ao Mercado Pago. Confira os meios disponíveis, parcelas e total antes de pagar. A reserva dura 24 horas."
+              : "Pagamento à vista, conferido manualmente pela loja. A reserva dura 24 horas."}
           </p>
         </div>
         <div className="commerce-card">
@@ -596,7 +622,7 @@ export function Checkout({ api, user, cart, onComplete }) {
 export function OrderArea({ api, user, route, admin = false }) {
   const prefix = admin ? "/online-orders" : "/customer/orders",
     session = admin ? "admin" : "customer",
-    id = route.split("/").filter(Boolean).at(-1),
+    id = route.split("?")[0].split("/").filter(Boolean).at(-1),
     detail = /^\d+$/.test(id);
   const s = useRemote(api, detail ? `${prefix}/${id}` : prefix, session),
     [error, setError] = useState(""),
@@ -609,11 +635,33 @@ export function OrderArea({ api, user, route, admin = false }) {
       fiscal_key: "",
       confirmed: false,
     });
+  const returnSynced = useRef(null);
+  useEffect(() => {
+    if (
+      !admin &&
+      user &&
+      detail &&
+      route.includes("mp_result=") &&
+      s.data?.payment?.provider === "mercado_pago" &&
+      returnSynced.current !== id
+    ) {
+      returnSynced.current = id;
+      api(`/customer/orders/${id}/payment-status`, {
+        method: "POST",
+        session: "customer",
+        body: {},
+      })
+        .then(s.reload)
+        .catch((e) => setError(e.message));
+    }
+  }, [api, admin, user?.id, detail, route, id, s.data?.payment?.provider]);
   if (!admin && !user)
     return (
       <section className="commerce-page">
         <h1>Meus pedidos</h1>
-        <a href="#/cliente/entrar">Entre para consultar</a>
+        <a href={`#/cliente/entrar${detail ? `?pedido=${id}` : ""}`}>
+          Entre para consultar
+        </a>
       </section>
     );
   if (!s.data) return <Loader state={s} />;
@@ -674,7 +722,10 @@ export function OrderArea({ api, user, route, admin = false }) {
     );
   const o = s.data,
     transitions = {
-      "Aguardando pagamento": ["Pago", "Cancelado"],
+      "Aguardando pagamento":
+        o.payment.provider === "mercado_pago"
+          ? ["Cancelado"]
+          : ["Pago", "Cancelado"],
       Pago: ["Em separação", "Reembolso solicitado"],
       "Em separação": [
         o.fulfillment.type === "pickup" ? "Pronto para retirada" : "Enviado",
@@ -712,6 +763,12 @@ export function OrderArea({ api, user, route, admin = false }) {
           </p>
           <h2>Total: {money(o.total_cents)}</h2>
           <h3>Recebimento</h3>
+          {o.payment_review_required && (
+            <p className="error" role="alert">
+              Pagamento precisa de revisão da loja. A entrega está bloqueada até
+              a análise.
+            </p>
+          )}
           <p>
             {o.fulfillment.type === "pickup"
               ? `Retirada: ${o.fulfillment.address}`
@@ -728,10 +785,17 @@ export function OrderArea({ api, user, route, admin = false }) {
           </p>
           {o.status === "Aguardando pagamento" && (
             <p>
-              Reserva até {date(o.expires_at)}. Aguarde a orientação da loja e
-              informe se já pagou antes de cancelar.
+              Reserva até {date(o.expires_at)}.{" "}
+              {o.payment.provider === "mercado_pago"
+                ? "Pague pelo Mercado Pago e use Atualizar para consultar a confirmação."
+                : "Aguarde a orientação da loja e informe se já pagou antes de cancelar."}
             </p>
           )}
+          {!admin &&
+            o.status === "Aguardando pagamento" &&
+            o.payment.provider === "mercado_pago" && (
+              <MercadoPagoWallet api={api} orderId={o.id} />
+            )}
           {o.tracking && <p>Rastreio / entrega: {o.tracking}</p>}
           {o.fiscal_key && <p>Chave fiscal: {o.fiscal_key}</p>}
           <h3>Fornecedor</h3>
@@ -759,6 +823,58 @@ export function OrderArea({ api, user, route, admin = false }) {
             </p>
           ))}
           <ErrorText message={error} />
+          {o.payment.provider === "mercado_pago" && (
+            <>
+              <button
+                disabled={busy}
+                onClick={() => mutate(`${prefix}/${o.id}/payment-status`, {})}
+              >
+                Consultar pagamento no Mercado Pago
+              </button>
+              {(o.payments || []).map((p) => (
+                <p key={p.payment_id}>
+                  Pagamento {p.payment_id}:{" "}
+                  {{
+                    approved: "aprovado",
+                    pending: "pendente",
+                    in_process: "em análise",
+                    rejected: "recusado",
+                    cancelled: "cancelado",
+                    refunded: "reembolsado",
+                    charged_back: "contestado",
+                  }[p.status] || "em atualização"}
+                  {p.refunded_cents
+                    ? ` — devolvido: ${money(p.refunded_cents)}`
+                    : ""}
+                </p>
+              ))}
+              {admin && user?.role === "admin" && (
+                <MercadoPagoRefund api={api} order={o} onUpdated={s.reload} />
+              )}
+              {admin && user?.role === "admin" && o.payment_review_required && (
+                <button
+                  disabled={busy}
+                  onClick={() => {
+                    const note = prompt(
+                      "Descreva a análise concluída no Mercado Pago antes de liberar a entrega (mínimo de 10 caracteres).",
+                    );
+                    if (
+                      note &&
+                      confirm(
+                        "Confirma que resolveu o alerta no Mercado Pago e pode liberar a entrega?",
+                      )
+                    )
+                      void mutate(`/online-orders/${o.id}/payment-review`, {
+                        confirmed: true,
+                        note,
+                      });
+                  }}
+                >
+                  Registrar análise e liberar entrega
+                </button>
+              )}
+            </>
+          )}
           {!admin && (
             <>
               <a className="button" href={`#/atendimento?pedido=${o.id}`}>
@@ -1208,7 +1324,7 @@ export function ServiceArea({
                     ? "current-password"
                     : "new-password"
                 }
-                minLength={key === "current_password" ? 1 : 8}
+                minLength={key === "current_password" ? 1 : 12}
                 maxLength={72}
                 value={password[key]}
                 onChange={(e) =>
@@ -1345,10 +1461,7 @@ export function CommerceSettings({ api }) {
             "delivery_enabled",
             "Habilitar entrega na região e faixa de CEP informadas",
           ],
-          [
-            "checkout_enabled",
-            "Habilitar finalização de compras com pagamento manual",
-          ],
+          ["checkout_enabled", "Habilitar finalização de compras"],
         ].map(([k, label]) => (
           <label className="commerce-check" key={k}>
             <input

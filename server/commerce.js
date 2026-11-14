@@ -1,9 +1,11 @@
+import { installMercadoPago } from "./mercado-pago-commerce.js";
+import { mercadoPagoConfig } from "./mercado-pago.js";
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { inputError, numberValue, text } from "./validation.js";
 import { expirationStatus } from "../src/expiration.js";
 
-export const POLICY_VERSION = "2026-10-10";
+export const POLICY_VERSION = "2026-11-14";
 export const commerceDefaults = {
   trade_name: "Cores & Fragrâncias by Berenice",
   legal_name: "",
@@ -37,8 +39,10 @@ const iso = () => new Date().toISOString();
 const publicPayment = (method) => ({
   id: method.id,
   name: method.name,
+  provider: method.code === "MP" ? "mercado_pago" : "manual",
   instructions:
     {
+      MP: "Pague no ambiente seguro do Mercado Pago. O pedido será atualizado após a confirmação do pagamento.",
       "01": "Pagamento em dinheiro, conforme orientação da loja. Combine a necessidade de troco no atendimento.",
       "03": "A loja orientará o pagamento por canal seguro ou maquininha. Não informe número do cartão ou CVV neste site.",
       "04": "Pagamento por canal seguro ou maquininha indicado pela loja. Não envie dados do cartão pelo atendimento.",
@@ -80,6 +84,8 @@ export const documentValid = (value) => {
 };
 export async function installCommerce(app, { db, auth, safeUser }) {
   await db.exec(`
+    CREATE TABLE IF NOT EXISTS mercado_pago_checkouts(order_id INTEGER PRIMARY KEY REFERENCES web_orders(id),preference_id TEXT NOT NULL,checkout_url TEXT NOT NULL,collector_id TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS mercado_pago_payments(payment_id TEXT PRIMARY KEY,order_id INTEGER NOT NULL REFERENCES web_orders(id),status TEXT NOT NULL,updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS commerce_settings(id INTEGER PRIMARY KEY CHECK(id=1),data TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS product_details(product_id INTEGER PRIMARY KEY REFERENCES products(id),description TEXT,composition TEXT,precautions TEXT,volume TEXT,manufacturer TEXT,anvisa_reference TEXT);
     CREATE TABLE IF NOT EXISTS web_orders(
@@ -241,11 +247,18 @@ export async function installCommerce(app, { db, auth, safeUser }) {
   const readOrder = async (id) => {
     const o = await db.prepare("SELECT * FROM web_orders WHERE id=?").get(id);
     if (!o) throw inputError("Pedido não encontrado", 404);
+    const payments = await db
+      .prepare(
+        "SELECT payment_id,status,amount_cents,refunded_cents,review_required FROM mercado_pago_payments WHERE order_id=? ORDER BY payment_id",
+      )
+      .all(id);
     return {
       ...o,
       idempotency_key: undefined,
       request_json: undefined,
       payment_reference: undefined,
+      payments,
+      payment_review_required: payments.some((p) => p.review_required),
       customer: JSON.parse(o.customer_json),
       seller: JSON.parse(o.seller_json),
       fulfillment: JSON.parse(o.fulfillment_json),
@@ -269,6 +282,46 @@ export async function installCommerce(app, { db, auth, safeUser }) {
         )
         .all(id),
     };
+  };
+  const recordPaidItems = async (o, reference, userId, installments = 1) => {
+    const id = o.id;
+    for (const i of await db
+      .prepare("SELECT * FROM web_order_items WHERE order_id=?")
+      .all(id)) {
+      const p = await db
+        .prepare("SELECT expiration_date FROM products WHERE id=?")
+        .get(i.product_id);
+      if (expirationStatus(p.expiration_date)?.status === "expired")
+        throw inputError(
+          "Produto reservado venceu. Cancele o pedido e providencie a devolução de eventual pagamento.",
+          409,
+        );
+      const payment = JSON.parse(o.payment_json);
+      const sale = await db
+        .prepare(
+          "INSERT INTO sales(product_id,quantity,total_value,user_id,customer_id,payment_method,order_number,order_status,transaction_reference,installments,amount_received,change_amount) VALUES(?,?,?,?,?,?,?,'Pago',?,?,?,0)",
+        )
+        .run(
+          i.product_id,
+          i.quantity,
+          i.total_cents / 100,
+          userId,
+          o.customer_id,
+          payment.name,
+          o.number,
+          reference,
+          installments,
+          i.total_cents / 100,
+        );
+      await db
+        .prepare("UPDATE web_order_items SET sale_id=? WHERE id=?")
+        .run(Number(sale.lastInsertRowid), i.id);
+      await db
+        .prepare(
+          "UPDATE stock_movements SET movement_type='VENDA',sale_id=?,reason=? WHERE id=?",
+        )
+        .run(Number(sale.lastInsertRowid), `Venda ${o.number}`, i.movement_id);
+    }
   };
   const event = async (id, status, note, userId) =>
     db
@@ -376,7 +429,7 @@ export async function installCommerce(app, { db, auth, safeUser }) {
       for (const item of b.items) {
         const p = await db
           .prepare(
-            "SELECT id,name,price,quantity,expiration_date FROM products WHERE id=?",
+            "SELECT id,name,price,quantity,expiration_date,CASE WHEN length(image)>0 THEN 1 ELSE 0 END has_image FROM products WHERE id=?",
           )
           .get(item.id);
         const qty = numberValue(item.quantity, "Quantidade", {
@@ -409,7 +462,7 @@ export async function installCommerce(app, { db, auth, safeUser }) {
           quantity: qty,
           previous_quantity: p.quantity,
           unit_price_cents: cents(p.price),
-          details: detail,
+          details: { ...detail, has_image: !!p.has_image },
         });
       }
       const method = await db
@@ -418,6 +471,13 @@ export async function installCommerce(app, { db, auth, safeUser }) {
         )
         .get(positiveId(b.payment_method_id));
       if (!method) throw inputError("Forma de pagamento indisponível");
+      const mp = await db
+        .prepare("SELECT active FROM payment_methods WHERE code='MP'")
+        .get();
+      if (mp?.active && method.code !== "MP")
+        throw inputError("Escolha Mercado Pago para pagar online", 409);
+      if (method.code === "MP" && !mercadoPagoConfig().configured)
+        throw inputError("Mercado Pago indisponível", 503);
       const f = b.fulfillment || {},
         fulfillment = { type: f.type };
       let shipping = 0;
@@ -479,7 +539,19 @@ export async function installCommerce(app, { db, auth, safeUser }) {
           JSON.stringify(customer),
           JSON.stringify(s),
           JSON.stringify(fulfillment),
-          JSON.stringify(publicPayment(method)),
+          JSON.stringify({
+            ...publicPayment(method),
+            max_installments:
+              method.code === "MP"
+                ? (
+                    await db
+                      .prepare(
+                        "SELECT max_installments FROM payment_methods WHERE id=?",
+                      )
+                      .get(method.id)
+                  ).max_installments
+                : 1,
+          }),
           subtotal,
           shipping,
           total,
@@ -523,12 +595,23 @@ export async function installCommerce(app, { db, auth, safeUser }) {
       await event(
         orderId,
         "Aguardando pagamento",
-        "Pedido recebido. Aguarde a orientação da loja; a reserva dura 24 horas. Pagamento sujeito à conferência manual.",
+        method.code === "MP"
+          ? "Pedido recebido. Pague pelo Mercado Pago; a reserva dura 24 horas."
+          : "Pedido recebido. Aguarde a orientação da loja; a reserva dura 24 horas. Pagamento sujeito à conferência manual.",
         req.user.id,
       );
       return orderId;
     })();
     res.status(201).json(await readOrder(id));
+  });
+  const mercadoPago = await installMercadoPago(app, {
+    db,
+    auth,
+    readOrder,
+    event,
+    expire,
+    release,
+    recordPaidItems,
   });
   app.get("/api/shop/payment-methods", async (_req, res) =>
     res.json(
@@ -538,7 +621,13 @@ export async function installCommerce(app, { db, auth, safeUser }) {
             "SELECT id,name,code FROM payment_methods WHERE active=1 ORDER BY id",
           )
           .all()
-      ).map(publicPayment),
+      )
+        .filter((m, _, all) =>
+          all.some((x) => x.code === "MP")
+            ? m.code === "MP" && mercadoPagoConfig().configured
+            : m.code !== "MP",
+        )
+        .map(publicPayment),
     ),
   );
   app.get("/api/customer/orders", auth(["cliente"]), async (req, res) =>
@@ -560,6 +649,14 @@ export async function installCommerce(app, { db, auth, safeUser }) {
     "/api/customer/orders/:id/cancel",
     auth(["cliente"]),
     async (req, res) => {
+      const initial = await db
+        .prepare("SELECT * FROM web_orders WHERE id=? AND customer_id=?")
+        .get(positiveId(req.params.id), req.user.id);
+      if (
+        initial &&
+        JSON.parse(initial.payment_json).provider === "mercado_pago"
+      )
+        return res.json(await mercadoPago.cancelOrder(initial, req.user));
       await db.transaction(async () => {
         const o = await db
           .prepare("SELECT * FROM web_orders WHERE id=? AND customer_id=?")
@@ -599,12 +696,53 @@ export async function installCommerce(app, { db, auth, safeUser }) {
     async (req, res) => {
       const id = positiveId(req.params.id),
         b = req.body || {};
+      const initial = await db
+        .prepare("SELECT * FROM web_orders WHERE id=?")
+        .get(id);
+      if (
+        initial &&
+        JSON.parse(initial.payment_json).provider === "mercado_pago"
+      ) {
+        if (b.status === "Cancelado")
+          return res.json(await mercadoPago.cancelOrder(initial, req.user));
+        if (b.status === "Reembolsado")
+          throw inputError(
+            "Solicite ou consulte o reembolso pelo Mercado Pago",
+            409,
+          );
+        if (
+          [
+            "Em separação",
+            "Enviado",
+            "Pronto para retirada",
+            "Entregue",
+          ].includes(b.status)
+        )
+          await mercadoPago.syncOrder(initial);
+      }
       await db.transaction(async () => {
         await expire();
         const o = await db
           .prepare("SELECT * FROM web_orders WHERE id=?")
           .get(id);
         if (!o) throw inputError("Pedido não encontrado", 404);
+        if (
+          [
+            "Em separação",
+            "Enviado",
+            "Pronto para retirada",
+            "Entregue",
+          ].includes(b.status) &&
+          (await db
+            .prepare(
+              "SELECT 1 FROM mercado_pago_payments WHERE order_id=? AND review_required=1 LIMIT 1",
+            )
+            .get(id))
+        )
+          throw inputError(
+            "Entrega bloqueada por alerta de pagamento. A administração deve revisar no Mercado Pago.",
+            409,
+          );
         const transitions = {
           "Aguardando pagamento": ["Pago", "Cancelado"],
           Pago: ["Em separação", "Reembolso solicitado"],
@@ -620,6 +758,14 @@ export async function installCommerce(app, { db, auth, safeUser }) {
         };
         if (!transitions[o.status]?.includes(b.status))
           throw inputError("Transição inválida ou pedido já atualizado", 409);
+        if (
+          b.status === "Pago" &&
+          JSON.parse(o.payment_json).provider === "mercado_pago"
+        )
+          throw inputError(
+            "O pagamento deve ser confirmado pelo Mercado Pago",
+            409,
+          );
         const reference = text(b.reference, 100);
         if (b.status === "Cancelado") {
           await release(o, req.user.id, "Cancelado");
@@ -640,48 +786,8 @@ export async function installCommerce(app, { db, auth, safeUser }) {
           (b.status === "Pronto para retirada" && fulfillment.type !== "pickup")
         )
           throw inputError("Situação incompatível com a entrega escolhida");
-        if (b.status === "Pago") {
-          for (const i of await db
-            .prepare("SELECT * FROM web_order_items WHERE order_id=?")
-            .all(id)) {
-            const p = await db
-              .prepare("SELECT expiration_date FROM products WHERE id=?")
-              .get(i.product_id);
-            if (expirationStatus(p.expiration_date)?.status === "expired")
-              throw inputError(
-                "Produto reservado venceu. Cancele o pedido e providencie a devolução de eventual pagamento.",
-                409,
-              );
-            const payment = JSON.parse(o.payment_json);
-            const sale = await db
-              .prepare(
-                "INSERT INTO sales(product_id,quantity,total_value,user_id,customer_id,payment_method,order_number,order_status,transaction_reference,installments,amount_received,change_amount) VALUES(?,?,?,?,?,?,?,'Pago',?,1,?,0)",
-              )
-              .run(
-                i.product_id,
-                i.quantity,
-                i.total_cents / 100,
-                req.user.id,
-                o.customer_id,
-                payment.name,
-                o.number,
-                reference,
-                i.total_cents / 100,
-              );
-            await db
-              .prepare("UPDATE web_order_items SET sale_id=? WHERE id=?")
-              .run(Number(sale.lastInsertRowid), i.id);
-            await db
-              .prepare(
-                "UPDATE stock_movements SET movement_type='VENDA',sale_id=?,reason=? WHERE id=?",
-              )
-              .run(
-                Number(sale.lastInsertRowid),
-                `Venda ${o.number}`,
-                i.movement_id,
-              );
-          }
-        }
+        if (b.status === "Pago")
+          await recordPaidItems(o, reference, req.user.id);
         if (b.status === "Reembolsado")
           await db
             .prepare(

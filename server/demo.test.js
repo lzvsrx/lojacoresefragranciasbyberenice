@@ -6,6 +6,7 @@ import { mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { testSchema } from "./test-fixture.js";
 
 test("Vercel temporary SQLite allows writes and reports non-persistent storage", async (t) => {
   const folder = mkdtempSync(path.join(tmpdir(), "corese-demo-test-"));
@@ -14,7 +15,7 @@ test("Vercel temporary SQLite allows writes and reports non-persistent storage",
   process.env.DATABASE_PATH = path.join(folder, "store.db");
   delete process.env.TURSO_DATABASE_URL;
   delete process.env.TURSO_AUTH_TOKEN;
-  const source = new Database("server/data/store.db", { readonly: true });
+  const source = testSchema();
   const setup = new Database(process.env.DATABASE_PATH);
   for (const row of source
     .prepare(
@@ -30,7 +31,7 @@ test("Vercel temporary SQLite allows writes and reports non-persistent storage",
     .prepare("INSERT INTO users(username,password,role,name) VALUES(?,?,?,?)")
     .run(
       "cliente",
-      bcrypt.hashSync("Cliente123!", 4),
+      bcrypt.hashSync("ClienteSeguro123!", 4),
       "cliente",
       "Cliente Teste",
     );
@@ -84,7 +85,10 @@ test("Vercel temporary SQLite allows writes and reports non-persistent storage",
   const customerLogin = await fetch(base + "/customer/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username: "cliente", password: "Cliente123!" }),
+    body: JSON.stringify({
+      username: "cliente",
+      password: "ClienteSeguro123!",
+    }),
   });
   assert.equal(customerLogin.status, 200);
   await customerLogin.json();
@@ -94,7 +98,7 @@ test("Vercel temporary SQLite allows writes and reports non-persistent storage",
     body: JSON.stringify({
       name: "New Customer",
       username: "newcustomer",
-      password: "Cliente123!",
+      password: "ClienteSeguro123!",
       email: "new@example.com",
     }),
   });

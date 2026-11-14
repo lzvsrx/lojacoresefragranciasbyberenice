@@ -1,6 +1,6 @@
 # Cores & Fragrâncias by Berenice
 
-Loja online, pedidos, atendimento, vendas e estoque com React, API Node.js e banco SQLite local ou Turso remoto. O recebimento e o reembolso de pagamentos são conferidos manualmente pela equipe.
+Loja online, pedidos, atendimento, vendas e estoque com React, API Node.js e banco SQLite local ou Turso remoto. Oferece cobrança automática pelo Mercado Pago Checkout Pro e formas com conferência manual. Reembolsos são realizados pela equipe no provedor.
 
 Este documento reúne as funcionalidades e correções implementadas até agora. **A execução local foi validada; o banco Turso ainda precisa ser criado e conectado à Vercel para permitir gravações permanentes no site publicado.**
 
@@ -103,20 +103,20 @@ No painel, entre em **Loja online** e preencha razão social/nome do fornecedor,
 
 Preencha também as informações reais dos produtos: descrição, composição, conteúdo/unidade, fabricante/origem e modo de uso/cuidados. O checkout recusa produtos sem esses campos. Informe a referência de regularização Anvisa quando aplicável e confira a situação do produto no serviço oficial; o sistema não faz essa consulta automaticamente.
 
-Revise as páginas públicas e só então marque **Habilitar finalização de compras com pagamento manual**. O servidor exige identificação e atendimento completos e impede habilitar vendas enquanto a conta `admin` mantiver a senha de exemplo `admin123`. Na Vercel, conecte primeiro o banco persistente.
+Revise as páginas públicas e só então marque **Habilitar finalização de compras**. O servidor exige identificação e atendimento completos e impede habilitar vendas enquanto a conta `admin` mantiver a senha de exemplo `admin123`. Na Vercel, conecte primeiro o banco persistente.
 
 ### Pedidos online e estoque
 
 1. A confirmação cria um pedido `WEB-…`, preservando nomes, preços, informações dos produtos, fornecedor, entrega, pagamento e versão das condições. A reserva baixa o estoque disponível por 24 horas, em transação única.
 2. Repetir a mesma confirmação com o mesmo identificador não duplica o pedido nem a reserva. Confirmações concorrentes não permitem estoque negativo. Cada cliente pode ter até três pedidos aguardando pagamento.
-3. A equipe abre **Pedidos online**, verifica o recebimento no banco/caixa e informa a referência para marcar **Pago**. Isso registra as vendas pelos preços aceitos no checkout, sem nova baixa de estoque. O site não movimenta dinheiro, não gera Pix/boleto e não recebe cartão.
+3. Com Mercado Pago, a confirmação verificada da API marca **Pago** automaticamente. Nas formas manuais, a equipe abre **Pedidos online**, verifica o recebimento no banco/caixa e informa a referência para marcar **Pago**. Isso registra as vendas pelos preços aceitos no checkout, sem nova baixa de estoque. Os dados de cartão são preenchidos somente no Mercado Pago.
 4. A equipe atualiza separação, envio ou retirada e entrega. O cliente consulta o histórico e imprime a confirmação em **Meus pedidos**. Uma chave de nota já emitida pode ser registrada; a impressão do pedido não é documento fiscal.
 5. Cancelar uma reserva libera o estoque uma única vez. Reservas expiradas são liberadas ao criar novos pedidos ou pelo botão **Liberar reservas expiradas** no painel. Não há tarefa agendada: a equipe deve usar esse botão ao iniciar o atendimento.
 6. Pedidos pagos seguem pelo fluxo de solicitação e confirmação de reembolso. Somente administrador confirma **Reembolsado**, com referência e conferência da operação externa. As vendas deixam de compor o faturamento. Itens devolvidos **não voltam automaticamente ao estoque**: precisam de inspeção e movimentação apropriada. Produtos vencidos não devem ser repostos para venda.
 
 As vendas e os indicadores antigos contabilizam o valor dos **produtos**; o frete aparece separadamente no pedido online e integra o total devido pelo cliente. Não registre novamente pela tela de venda um pedido online já marcado como pago. Vendas ligadas a pedidos online não podem ser canceladas isoladamente pela rota antiga.
 
-Os pedidos mostram pagamento à vista, sem parcelamento automático. Configurar parcelas na venda administrativa não cria contrato de crédito nem cobrança no checkout. Estorno, logística reversa, conciliação de pagamentos, documento fiscal e comunicação externa continuam sob responsabilidade da equipe e dos serviços contratados.
+Nas formas manuais, os pedidos mostram pagamento à vista; configurar parcelas na venda administrativa não cria cobrança no checkout. Com Mercado Pago, o cliente confere as parcelas e encargos no provedor, conforme o limite configurado. Estorno, logística reversa, documento fiscal e comunicação externa continuam sob responsabilidade da equipe e dos serviços contratados.
 
 ### Atendimento, devoluções e privacidade
 
@@ -138,6 +138,20 @@ O banco de exemplo usa usuário `admin` e senha `admin123`. Troque a senha antes
 
 ## Configurar formas de pagamento
 
+### Mercado Pago automático (Checkout Pro)
+
+O guia completo está em [docs/MERCADO_PAGO.md](docs/MERCADO_PAGO.md), com o domínio **https://lojacoresefragranciasbyberenice.vercel.app**, SDKs oficiais, webhook, consulta, cancelamento, reembolso e configuração da Vercel. Execute `npm run payments:configure` para preparar o `.env` privado e gerar as chaves ausentes sem exibi-las; execute `npm run payments:check` depois de preencher as credenciais. O diagnóstico informa as pendências sem publicar segredos.
+
+Configure `MERCADO_PAGO_ACCESS_TOKEN`, `MERCADO_PAGO_PUBLIC_KEY`, `MERCADO_PAGO_WEBHOOK_SECRET` e `PUBLIC_BASE_URL`. O webhook da loja é `https://lojacoresefragranciasbyberenice.vercel.app/api/mercado-pago/webhook`. Use `MERCADO_PAGO_SANDBOX=true` com credenciais de teste correspondentes; em produção use `false`, credenciais produtivas e `CRON_SECRET` para a recuperação agendada de notificações.
+
+Em **Formas de pagamento**, ative **Mercado Pago**, ajuste o limite de parcelas e salve. A opção inicia desativada e só pode ser ativada com o servidor configurado. Quando ativa, os novos pedidos online usam Mercado Pago; as formas manuais continuam disponíveis nas vendas presenciais. O cliente é redirecionado ao Checkout Pro e pode retomar o pagamento em **Meus pedidos**. Segredos nunca são enviados ao navegador.
+
+O webhook valida a assinatura, persiste a notificação e consulta o pagamento na API antes de converter a reserva em venda. Notificações repetidas não duplicam vendas. O retorno do navegador não confirma pagamento. A reserva dura 24 horas; pagamentos tardios ou duplicados exigem revisão, sem nova baixa de estoque. Boleto e outros meios offline são excluídos para evitar compensação após a reserva. Administradores podem solicitar reembolsos totais ou parciais na tela do pedido, com confirmação explícita e idempotência; contestações e alertas bloqueiam a evolução da entrega até revisão.
+
+Teste criação, pagamento e recebimento do webhook no ambiente de testes antes de ativar em produção. Referências: [criar preferência](https://www.mercadopago.com.br/developers/pt/reference/online-payments/checkout-pro-preferences/create-preference/post) e [notificações](https://www.mercadopago.com.br/developers/en/docs/checkout-pro-preferences/additional-settings/optional-notifications).
+
+### Formas manuais e vendas presenciais
+
 Administradores acessam **Formas de pagamento** para ajustar os tipos disponíveis. Cada cartão explica como receber, conferir o pagamento e identificar a transação. Configure nome, disponibilidade, limite de parcelas (1 a 24), exigência de código da transação e orientação exibida no formulário de venda. **Salvar configuração** grava somente aquela forma; **Usar orientação sugerida** preenche um texto para revisar e salvar.
 
 Ativar uma forma permite selecioná-la na venda, mas não cria cobrança, boleto, QR Code ou integração automática. Use seu banco, maquininha ou provedor para receber e conferir. O sistema não calcula juros nem frete. A tela também inclui orientações sobre identificação da loja, preço total, entrega, atendimento e devoluções, com links para o [Decreto do comércio eletrônico](https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2013/decreto/d7962.htm), o [Código de Defesa do Consumidor](https://www.planalto.gov.br/ccivil_03/leis/l8078compilado.htm) e os [cuidados com comprovantes Pix](https://www.bcb.gov.br/meubc/faqs/s/golpes).
@@ -148,10 +162,15 @@ As credenciais do banco ou provedor não devem ser inseridas nas instruções. A
 
 O servidor lê `.env` automaticamente. Use `.env.example` como referência e substitua a chave de exemplo antes de publicar.
 
+Em produção, `PUBLIC_BASE_URL` HTTPS e `JWT_SECRET` forte são obrigatórias. Na Vercel, o banco remoto também é obrigatório. Leia [SECURITY.md](SECURITY.md) para configurar proxy, origens, sessões, auditoria e resposta a incidentes.
+
 | Variável        | Finalidade                                       |
 | --------------- | ------------------------------------------------ |
 | `PORT`          | Porta do servidor; padrão `3001`.                |
-| `JWT_SECRET`    | Chave das sessões; gerada localmente se ausente. |
+| `JWT_SECRET`    | Chave aleatória das sessões, com pelo menos 48 bytes; obrigatória em produção. |
+| `PUBLIC_BASE_URL` | Origem HTTPS pública da loja; obrigatória em produção. |
+| `TRUST_PROXY_HOPS` | Quantidade real de proxies confiáveis: padrão 1 na Vercel, 0 nos demais ambientes. |
+| `CORS_ORIGINS` | Outras origens autorizadas, separadas por vírgula; opcional. |
 | `DATABASE_PATH` | Caminho opcional do arquivo SQLite local.        |
 | `TURSO_DATABASE_URL` | URL do banco libSQL persistente; tem prioridade sobre o SQLite local. |
 | `TURSO_AUTH_TOKEN` | Token privado de acesso ao banco remoto. |
@@ -163,6 +182,8 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
 Não publique `.env`, tokens ou chaves. Sem `JWT_SECRET` no modo local, o servidor cria `.jwt-secret` ao lado do banco. Preserve esse arquivo para manter sessões entre reinicializações. Trocar a senha de um usuário invalida suas sessões anteriores.
+
+As sessões do navegador usam cookies `HttpOnly`; não são guardadas no `localStorage`. A equipe tem duração máxima de uma hora, com encerramento após 15 minutos de inatividade; clientes têm oito horas, com encerramento após 30 minutos de inatividade. Sair revoga a sessão no servidor, e **Sair de todos os dispositivos** revoga as demais. Esta atualização exige novo login. Clientes de API sem contexto de navegador ainda podem receber e usar Bearer tokens, sujeitos à mesma revogação e expiração.
 
 ## Banco local, privacidade e backup
 
@@ -259,7 +280,7 @@ Exportações de produtos e vendas protegem células que poderiam ser interpreta
 
 ## Validações realizadas
 
-A atualização passou com **32 testes**, além de build e auditoria sem vulnerabilidades encontradas. O fluxo de cadastro, detalhes, checkout, reserva, confirmação manual de pagamento, atendimento e correção de cadastro foi exercitado em navegador, com verificação de layout nas larguras 320, 390 e 1440 pixels.
+A suíte atual passou com **61 testes**, além de build e auditoria sem vulnerabilidades encontradas. O reforço de segurança também foi verificado em navegador com login por cookies, recarregamento, separação dos portais e revogação das sessões, e os testes de API e comércio foram exercitados pelo adaptador libSQL. As verificações anteriores de cadastro, detalhes, checkout, reserva, confirmação manual de pagamento, atendimento e correção de cadastro incluíram layout nas larguras 320, 390 e 1440 pixels.
 
 A suíte inclui testes de autenticação, limites, validade, entradas inválidas, vendas e cancelamentos concorrentes, estoque, importação atômica, sessões, transações, imagens, retomada da migração, busca sem acentos, catálogo público, cadastro seguro de clientes, separação de permissões, conferência de sacola e bloqueio de gravações na Vercel sem banco persistente. Os testes de comércio acrescentam identificação do fornecedor, informações de produtos, aceite, preço/frete, idempotência, concorrência, privacidade entre contas, pagamento/reembolso, expiração e liberação de reservas e troca de senha.
 

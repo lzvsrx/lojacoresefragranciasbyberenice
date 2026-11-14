@@ -5,12 +5,15 @@ export default async function handler(req, res) {
     const { default: app } = await application;
     return app(req, res);
   } catch (error) {
-    console.error("Falha ao iniciar a aplicação:", error.message);
-    res
-      .status(503)
-      .json({
-        error:
-          "A loja está temporariamente indisponível. Confira a conexão do banco e JWT_SECRET na hospedagem.",
-      });
+    console.error(
+      JSON.stringify({
+        event: "application.start_failed",
+        code: typeof error.code === "string" ? error.code : "STARTUP_ERROR",
+      }),
+    );
+    res.status(503).json({
+      error:
+        "A loja está temporariamente indisponível. Tente novamente em instantes.",
+    });
   }
 }

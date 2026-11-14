@@ -30,6 +30,9 @@ import { paymentGuidance } from "./payment-guidance.js";
 import { matchesProduct } from "./search.js";
 import { parseProductData } from "./product-data.js";
 import { CommerceSettings, OrderArea, ServiceArea } from "./commerce.jsx";
+// Discard bearer credentials left by older versions. Browser sessions now use HttpOnly cookies.
+localStorage.removeItem("token");
+localStorage.removeItem("customerToken");
 const Storefront = React.lazy(() => import("./storefront.jsx"));
 
 function useStoreToday() {
@@ -129,9 +132,7 @@ const api = async (path, opts = {}) => {
         throw new Error("Arquivo excede o limite de 4 MB");
   }
   const session = opts.session || "admin";
-  const tokenKey = session === "customer" ? "customerToken" : "token";
-  const token = session === "public" ? null : localStorage.getItem(tokenKey);
-  const headers = { ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  const headers = { "X-Session-Portal": session };
   if (!(opts.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
     if (opts.body && typeof opts.body !== "string")
@@ -139,9 +140,14 @@ const api = async (path, opts = {}) => {
   }
   let r;
   try {
-    const { session: _session, ...requestOptions } = opts;
+    const {
+      session: _session,
+      silentAuth: _silentAuth,
+      ...requestOptions
+    } = opts;
     r = await fetch(API + path, {
       ...requestOptions,
+      credentials: "same-origin",
       headers: { ...headers, ...opts.headers },
     });
   } catch (error) {
@@ -153,9 +159,9 @@ const api = async (path, opts = {}) => {
   if (
     r.status === 401 &&
     !["/login", "/customer/login"].includes(path) &&
-    session !== "public"
+    session !== "public" &&
+    !opts.silentAuth
   ) {
-    localStorage.removeItem(tokenKey);
     window.dispatchEvent(
       new Event(
         session === "customer" ? "customer-auth-expired" : "auth-expired",
@@ -211,7 +217,6 @@ function Login({ onLogin }) {
         method: "POST",
         body: { ...form, portal: "admin" },
       });
-      localStorage.setItem("token", x.token);
       onLogin(x.user);
     } catch (e) {
       setError(e.message);
@@ -377,9 +382,13 @@ function Shell({ user, setUser }) {
     return () => window.removeEventListener("load-error", report);
   }, []);
   useEffect(() => setLoadError(""), [page]);
-  const logout = () => {
-    localStorage.removeItem("token");
-    setUser(null);
+  const logout = async (all = false) => {
+    try {
+      await api(all ? "/logout-all" : "/logout", { method: "POST", body: {} });
+      setUser(null);
+    } catch (error) {
+      reportLoadError(error);
+    }
   };
   return (
     <div className="app">
@@ -426,8 +435,15 @@ function Shell({ user, setUser }) {
             <b>{user.name}</b>
             <span>{user.role}</span>
           </div>
-          <button title="Sair" onClick={logout}>
+          <button title="Sair" onClick={() => logout()}>
             <LogOut size={18} />
+          </button>
+          <button
+            title="Sair de todos os dispositivos"
+            aria-label="Sair de todos os dispositivos"
+            onClick={() => logout(true)}
+          >
+            <UserCog size={18} />
           </button>
         </div>
       </aside>
@@ -1784,6 +1800,12 @@ function CustomerOrders({
 }
 function PaymentSettings() {
   const [methods, setMethods] = useState([]);
+  const [gateway, setGateway] = useState(null);
+  const [gatewayMessage, setGatewayMessage] = useState("");
+  const [checkingGateway, setCheckingGateway] = useState(false);
+  useEffect(() => {
+    api("/mercado-pago/status").then(setGateway).catch(reportLoadError);
+  }, []);
   const [savingId, setSavingId] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [dirtyIds, setDirtyIds] = useState([]);
@@ -1822,6 +1844,104 @@ function PaymentSettings() {
   return (
     <div className="payments-page">
       <Card
+        title="Mercado Pago — cobrança automática"
+        subtitle="Checkout Pro para os pedidos da loja online."
+      >
+        <div className="payments-intro">
+          <CreditCard size={28} />
+          <div>
+            <b>
+              {gateway?.configured
+                ? "Servidor configurado"
+                : "Configure as credenciais no servidor"}
+            </b>
+            <p>
+              Defina MERCADO_PAGO_ACCESS_TOKEN, MERCADO_PAGO_PUBLIC_KEY,
+              MERCADO_PAGO_WEBHOOK_SECRET e PUBLIC_BASE_URL no ambiente do
+              servidor. Os segredos não são cadastrados nesta tela.
+            </p>
+            <p>
+              Ative Mercado Pago no cartão abaixo e salve. Com a opção ativa, o
+              checkout online oferece Mercado Pago; as demais formas continuam
+              nas vendas presenciais.
+            </p>
+            <p>
+              O cliente escolhe como pagar no Mercado Pago. A confirmação é
+              automática após aprovação. A administração pode solicitar e
+              acompanhar reembolsos na tela do pedido.
+            </p>
+            {gateway?.sandbox && <p>Ambiente de testes ativado.</p>}
+            {gateway?.auto_refund_fraud && (
+              <p>
+                Alertas de fraude autenticados bloqueiam a entrega e solicitam a
+                devolução integral automática dos pagamentos no Mercado Pago.
+              </p>
+            )}
+            {gateway?.missing?.length > 0 && (
+              <p>Configurações pendentes: {gateway.missing.join(", ")}</p>
+            )}
+            {gateway?.webhook_url && (
+              <p>
+                URL do webhook: <code>{gateway.webhook_url}</code>
+              </p>
+            )}
+            {!!gateway?.pending_notifications && (
+              <p role="alert">
+                {gateway.pending_notifications} notificações aguardam
+                processamento.
+              </p>
+            )}
+            <button
+              type="button"
+              disabled={checkingGateway || !gateway?.configured}
+              onClick={async () => {
+                setCheckingGateway(true);
+                setGatewayMessage("");
+                try {
+                  const result = await api("/mercado-pago/verify", {
+                    method: "POST",
+                    body: {},
+                  });
+                  setGatewayMessage(
+                    `Conexão verificada com a conta ${result.account_id}.`,
+                  );
+                } catch (e) {
+                  setGatewayMessage(e.message);
+                } finally {
+                  setCheckingGateway(false);
+                }
+              }}
+            >
+              Verificar conexão
+            </button>
+            <button
+              type="button"
+              disabled={checkingGateway || !gateway?.configured}
+              onClick={async () => {
+                setCheckingGateway(true);
+                try {
+                  const result = await api(
+                    "/mercado-pago/retry-notifications",
+                    { method: "POST", body: {} },
+                  );
+                  setGatewayMessage(
+                    `${result.processed} notificações verificadas.`,
+                  );
+                  setGateway(await api("/mercado-pago/status"));
+                } catch (e) {
+                  setGatewayMessage(e.message);
+                } finally {
+                  setCheckingGateway(false);
+                }
+              }}
+            >
+              Reprocessar notificações
+            </button>
+            {gatewayMessage && <p role="status">{gatewayMessage}</p>}
+          </div>
+        </div>
+      </Card>
+      <Card
         title="Configuração das formas de pagamento"
         subtitle="Escolha como sua loja recebe e o que a equipe deve conferir em cada venda."
       >
@@ -1830,9 +1950,10 @@ function PaymentSettings() {
           <div>
             <b>Recebimentos organizados, do pedido à entrega</b>
             <p>
-              Ativar uma forma permite selecioná-la nas vendas. A cobrança e a
-              confirmação são feitas no seu banco, maquininha ou provedor: este
-              sistema registra o pagamento, sem cobrar automaticamente.
+              Ativar uma forma permite selecioná-la nas vendas presenciais.
+              Nessas vendas, confira o recebimento no banco ou na maquininha. Na
+              loja online, a opção Mercado Pago cria a cobrança e confirma o
+              pagamento automaticamente pelo Checkout Pro.
             </p>
           </div>
         </div>
@@ -1859,7 +1980,7 @@ function PaymentSettings() {
               <article key={method.id}>
                 <div className="payment-method-heading">
                   <div>
-                    <h4>{guide.title}</h4>
+                    <h4>{method.name || guide.title}</h4>
                     <p>{guide.description}</p>
                   </div>
                   <span className={`pill ${method.active ? "green" : ""}`}>
@@ -2008,10 +2129,9 @@ function PaymentSettings() {
           <article>
             <h4>Confirmação do pagamento</h4>
             <p>
-              Use um banco ou provedor contratado. Confira o crédito ou a
-              aprovação antes de marcar como Pago ou Concluído. Para cobrança
-              automática no site, ainda é necessária uma integração com um
-              provedor.
+              Nas formas manuais, confira o crédito ou a aprovação antes de
+              marcar como Pago ou Concluído. Nos pedidos online pelo Mercado
+              Pago, aguarde a confirmação automática do provedor no pedido.
             </p>
           </article>
           <article>
@@ -2263,10 +2383,10 @@ function UserForm({ user, onClose, onSaved }) {
     if (v.password !== confirmPassword) return alert("As senhas não coincidem");
     if (
       v.password &&
-      !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,72}$/.test(v.password)
+      !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{12,72}$/.test(v.password)
     )
       return alert(
-        "Use uma senha de 8 a 72 caracteres, com maiúscula, minúscula e número",
+        "Use uma senha de 12 a 72 caracteres, com maiúscula, minúscula e número",
       );
     setSaving(true);
     try {
@@ -2343,7 +2463,7 @@ function UserForm({ user, onClose, onSaved }) {
           Senha {user && "(vazia para manter)"}
           <input
             required={!user}
-            minLength={v.password ? 8 : undefined}
+            minLength={v.password ? 12 : undefined}
             maxLength="72"
             autoComplete="new-password"
             type={showPassword ? "text" : "password"}
@@ -2470,27 +2590,23 @@ function UserForm({ user, onClose, onSaved }) {
 }
 function AdminApp() {
   const [user, setUser] = useState(null),
-    [loading, setLoading] = useState(!!localStorage.getItem("token"));
+    [loading, setLoading] = useState(true);
   useEffect(() => {
     const expired = () => {
       setUser(null);
       setLoading(false);
     };
     window.addEventListener("auth-expired", expired);
-    const token = localStorage.getItem("token");
-    if (token)
-      api("/me")
-        .then((currentUser) => {
-          if (!["admin", "funcionario"].includes(currentUser.role))
-            throw new Error("Use a área do cliente");
-          setUser(currentUser);
-        })
-        .catch(() => {
-          localStorage.removeItem("token");
-          setUser(null);
-        })
-        .finally(() => setLoading(false));
-    else setLoading(false);
+    api("/me", { silentAuth: true })
+      .then((currentUser) => {
+        if (!["admin", "funcionario"].includes(currentUser.role))
+          throw new Error("Use a área do cliente");
+        setUser(currentUser);
+      })
+      .catch(() => {
+        setUser(null);
+      })
+      .finally(() => setLoading(false));
     return () => window.removeEventListener("auth-expired", expired);
   }, []);
   return loading ? (

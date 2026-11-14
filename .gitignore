@@ -11,3 +11,14 @@ server/data/backup-keys/
 
 .vercel
 .env*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+*.db-shm
+*.db-wal
+*.pem
+*.key
+*.p12
+*.pfx
+coverage/

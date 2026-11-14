@@ -10,8 +10,9 @@ const loginKey = (req) =>
       .toLowerCase(),
   ]);
 
-export const createLoginLimiter = () =>
+export const createLoginLimiter = (store) =>
   rateLimit({
+    ...(store ? { store } : {}),
     windowMs: 15 * 60 * 1000,
     limit: 8,
     standardHeaders: "draft-8",
@@ -45,8 +46,9 @@ export const createApiLimiter = () =>
     message: { error: "Limite temporário de requisições excedido" },
   });
 
-export const createRegistrationLimiter = () =>
+export const createRegistrationLimiter = (store) =>
   rateLimit({
+    ...(store ? { store } : {}),
     windowMs: 60 * 60 * 1000,
     limit: 10,
     standardHeaders: "draft-8",
@@ -54,5 +56,18 @@ export const createRegistrationLimiter = () =>
     message: {
       error:
         "Muitas tentativas de cadastro. Aguarde antes de tentar novamente.",
+    },
+  });
+
+export const createLoginIpLimiter = (store) =>
+  rateLimit({
+    ...(store ? { store } : {}),
+    windowMs: 15 * 60 * 1000,
+    limit: 60,
+    standardHeaders: "draft-8",
+    legacyHeaders: false,
+    message: {
+      error:
+        "Muitas tentativas de acesso nesta conexão. Aguarde antes de tentar novamente.",
     },
   });

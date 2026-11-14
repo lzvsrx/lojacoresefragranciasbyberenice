@@ -5,20 +5,24 @@
   "scripts": {
     "dev": "concurrently \"npm:server\" \"npm:client\"",
     "server": "node --watch server/index.js",
-    "client": "vite --host 0.0.0.0",
+    "client": "vite --host 127.0.0.1",
     "build": "vite build",
     "start": "node server/index.js",
     "create-seed": "node scripts/create-seed.js",
     "backup": "node scripts/backup.js",
     "migrate:cloud": "node scripts/migrate-cloud.js",
     "test": "node --test server/*.test.js src/*.test.js",
-    "sync:from-cloud": "node scripts/pull-cloud.js"
+    "sync:from-cloud": "node scripts/pull-cloud.js",
+    "security:check": "npm audit --audit-level=moderate",
+    "payments:configure": "node scripts/configure-payments.mjs --init",
+    "payments:check": "node scripts/configure-payments.mjs --verify"
   },
   "engines": {
     "node": ">=22.12.0"
   },
   "dependencies": {
     "@libsql/client": "^0.18.0",
+    "@mercadopago/sdk-js": "^0.0.3",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^13.0.3",
     "cors": "^2.8.6",
@@ -27,12 +31,14 @@
     "helmet": "^8.3.0",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^1.55.0",
-    "multer": "^2.4.0",
+    "mercadopago": "^3.6.2",
+    "multer": "^2.5.0",
     "papaparse": "^5.7.0",
     "pdfkit": "^0.20.2",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "react-router-dom": "^7.18.4"
+    "react-router-dom": "^7.18.4",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^6.1.2",

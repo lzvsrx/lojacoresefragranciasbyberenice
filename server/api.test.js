@@ -6,13 +6,15 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
+import { testSchema } from "./test-fixture.js";
+import sharp from "sharp";
 
 test("API regression suite uses an isolated database", async (t) => {
   const folder = mkdtempSync(path.join(tmpdir(), "corese-api-test-"));
   process.env.NODE_ENV = "test";
   delete process.env.VERCEL;
   process.env.DATABASE_PATH = path.join(folder, "store.db");
-  const seed = new Database("server/data/store.db", { readonly: true });
+  const seed = testSchema();
   const setup = new Database(process.env.DATABASE_PATH);
   // Copy only the schema, never operational records or customer data.
   for (const row of seed
@@ -201,7 +203,7 @@ test("API regression suite uses an isolated database", async (t) => {
         username: "cliente",
         name: "Cliente Teste",
         role: "cliente",
-        password: "Client123!",
+        password: "ClienteSeguro123!",
       });
       assert.equal(client.status, 201);
       clientId = client.body.id;
@@ -628,7 +630,7 @@ test("API regression suite uses an isolated database", async (t) => {
         name: "Cliente Público",
         username: "cliente.publico",
         email: "PUBLICO@example.com",
-        password: "Cliente123!",
+        password: "ClienteSeguro123!",
         role: "admin",
       };
       assert.equal(
@@ -701,10 +703,11 @@ test("API regression suite uses an isolated database", async (t) => {
           (await request(`/users/${login.body.user.id}/image`)).status,
           403,
         );
-        const image = Buffer.from(
-          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a4WQAAAAASUVORK5CYII=",
-          "base64",
-        );
+        const image = await sharp({
+          create: { width: 1, height: 1, channels: 3, background: "red" },
+        })
+          .png()
+          .toBuffer();
         const upload = new FormData();
         upload.append(
           "image",
@@ -717,7 +720,12 @@ test("API regression suite uses an isolated database", async (t) => {
           { headers: { Authorization: `Bearer ${token}` } },
         );
         assert.equal(ownPhoto.status, 200);
-        assert.deepEqual(Buffer.from(await ownPhoto.arrayBuffer()), image);
+        const decoded = sharp(Buffer.from(await ownPhoto.arrayBuffer()));
+        assert.equal((await decoded.metadata()).format, "png");
+        assert.deepEqual(
+          await decoded.raw().toBuffer(),
+          await sharp(image).raw().toBuffer(),
+        );
         assert.equal((await request("/me")).body.role, "cliente");
         for (const route of [
           "/products",

@@ -10,6 +10,7 @@ import Database from "better-sqlite3";
 import bcrypt from "bcryptjs";
 import { randomUUID } from "node:crypto";
 import { commerceDefaults, POLICY_VERSION, documentValid } from "./commerce.js";
+import { testSchema } from "./test-fixture.js";
 
 test("supplier document supports CPF and numeric/alpha CNPJ", () => {
   assert.equal(documentValid("11.222.333/0001-81"), true);
@@ -28,7 +29,7 @@ test("online commerce uses isolated data and atomic stock", async (t) => {
   process.env.NODE_ENV = "test";
   delete process.env.VERCEL;
   process.env.DATABASE_PATH = path.join(folder, "store.db");
-  const source = new Database("server/data/store.db", { readonly: true }),
+  const source = testSchema(),
     setup = new Database(process.env.DATABASE_PATH);
   for (const row of source
     .prepare(
@@ -78,6 +79,11 @@ test("online commerce uses isolated data and atomic stock", async (t) => {
       },
       body: body ? JSON.stringify(body) : undefined,
     });
+    assert.notEqual(
+      r.status,
+      500,
+      `Erro interno inesperado em ${method} ${route}`,
+    );
     return { status: r.status, body: await r.json() };
   };
   const admin = (
@@ -92,7 +98,7 @@ test("online commerce uses isolated data and atomic stock", async (t) => {
         username,
         name: "Cliente Teste",
         email: `${username}@example.test`,
-        password: "Cliente123!",
+        password: "ClienteSeguro123!",
       })
     ).body;
   const client = await register("client.one"),
@@ -562,7 +568,10 @@ test("online commerce uses isolated data and atomic stock", async (t) => {
           await request(
             "/customer/password",
             "PUT",
-            { current_password: "Cliente123!", password: "NovaSenha123!" },
+            {
+              current_password: "ClienteSeguro123!",
+              password: "NovaSenha123!",
+            },
             client.token,
           )
         ).status,

@@ -29,7 +29,14 @@ db.transaction(() => {
       .map((t) => t.name),
   );
   for (const table of [
+    "auth_sessions",
+    "security_rate_limits",
+    "security_audit",
     "service_requests",
+    "mercado_pago_payments",
+    "mercado_pago_operations",
+    "mercado_pago_inbox",
+    "mercado_pago_checkouts",
     "web_order_events",
     "web_order_items",
     "web_orders",
