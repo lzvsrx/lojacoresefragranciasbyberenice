@@ -2,6 +2,8 @@
 
 Domínio definido: **https://lojacoresefragranciasbyberenice.vercel.app**.
 
+Aplicação informada pelo titular: **App-Outras-plataformas-20261117-b924cca76f**, Client ID **5566321891818715**. O ID vem preenchido na configuração inicial. O User ID mostrado no painel identifica o usuário e não substitui o Client ID, o Client Secret ou a assinatura do webhook. Os segredos privados não estavam presentes na imagem e devem ser preenchidos no formulário protegido da loja ou no ambiente privado.
+
 A solução implementada é **Checkout Pro via Preferences API**, com SDK oficial Node.js no servidor e MercadoPago.js/Wallet Brick no navegador. A conta pode ser vinculada pela autorização oficial OAuth descrita abaixo. Testes locais usam respostas simuladas e não movimentam dinheiro.
 
 ## Conectar sua conta pelo Mercado Pago

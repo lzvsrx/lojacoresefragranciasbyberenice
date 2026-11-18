@@ -2,7 +2,7 @@
 
 Loja online, pedidos, atendimento, vendas e estoque com React, API Node.js e banco SQLite local ou Turso remoto. Oferece cobrança automática pelo Mercado Pago Checkout Pro e formas com conferência manual. Reembolsos são realizados pela equipe no provedor.
 
-Este documento reúne as funcionalidades e correções implementadas até agora. **A execução local foi validada; o banco Turso ainda precisa ser criado e conectado à Vercel para permitir gravações permanentes no site publicado.**
+Este documento reúne as funcionalidades e correções implementadas até agora. A loja publicada usa banco Turso persistente. A ativação dos recebimentos pelo Mercado Pago depende das credenciais privadas da aplicação e da autorização da conta vendedora.
 
 ## Documentação visual
 

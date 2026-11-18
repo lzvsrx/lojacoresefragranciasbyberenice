@@ -11,6 +11,7 @@ import {
   withMercadoPagoCredentials,
 } from "./mercado-pago.js";
 import { inputError } from "./validation.js";
+import { storeMercadoPagoApplication } from "./mercado-pago-application.js";
 import { installPaymentMethodRegistry } from "./mercado-pago-methods.js";
 
 const digest = (value) => createHash("sha256").update(value).digest("hex");
@@ -89,7 +90,7 @@ export async function installMercadoPagoConnection(
     row.app_cipher
       ? cipher().open(row.app_cipher, "mercadopago:application:v1")
       : {
-          clientId: env.MERCADO_PAGO_CLIENT_ID,
+          clientId: env.MERCADO_PAGO_CLIENT_ID || storeMercadoPagoApplication.clientId,
           clientSecret: env.MERCADO_PAGO_CLIENT_SECRET,
           webhookSecret: env.MERCADO_PAGO_WEBHOOK_SECRET,
         };
